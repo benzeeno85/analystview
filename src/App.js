@@ -910,6 +910,7 @@ function LiveChainView() {
     } catch(_) { setError("synthetic"); }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{ load(ticker); },[ticker]);
 
   const handleSearch=()=>{
@@ -1476,6 +1477,7 @@ function AnalystReportModal({subject, onClose}) {
   const [phase, setPhase] = useState("Gathering analyst consensus...");
   const [grounded, setGrounded] = useState(false); // true if live web search findings were used
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { generateReport(); }, []);
 
   // Phase 1 — search the web for current, real information about this ticker
