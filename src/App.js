@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-const API_KEYS = { finnhub: "", alphavantage: "", polygon: "" };
+const API_KEYS = { finnhub: "", alphavantage: "", polygon: "", fmp: "" };
 
 const STOCKS = {
   SP500: [
@@ -246,6 +246,29 @@ const FUTURES = [
   { symbol:"ZW=F", name:"Wheat",           unit:"¢/bu",   category:"Agriculture"   },
 ];
 
+// Generates real upcoming Friday expiry dates (weekly + monthly) relative to TODAY.
+// This ensures screener contracts are never stale, regardless of when the app runs.
+function getUpcomingExpiries() {
+  const today = new Date();
+  const dates = [];
+  // Next 4 weekly Fridays
+  for (let w=1; w<=4; w++) {
+    const d = new Date(today);
+    const dow = d.getDay();
+    const daysToFri = (5-dow+7)%7 || 7;
+    d.setDate(d.getDate()+daysToFri+(w-1)*7);
+    dates.push(d.toISOString().slice(0,10));
+  }
+  // Next 3 monthly (3rd Friday) expiries
+  for (let m=1; m<=3; m++) {
+    const d = new Date(today.getFullYear(), today.getMonth()+m, 1);
+    let friCount=0;
+    while (friCount<3) { if(d.getDay()===5) friCount++; if(friCount<3) d.setDate(d.getDate()+1); }
+    dates.push(d.toISOString().slice(0,10));
+  }
+  return [...new Set(dates)].sort();
+}
+
 const OPTIONS_SCREENER = [
   { underlying:"BAC",  name:"Bank of America", expiry:"2025-08-15", strike:40,  type:"CALL", iv:24.1, delta:0.38, gamma:0.04, theta:-0.02, vega:0.08, oi:42100, vol:8200,  premium:0.45, spotPrice:38.90, moneyness:"OTM", risk:2, sector:"Financials",     beginner:true  },
   { underlying:"BAC",  name:"Bank of America", expiry:"2025-08-15", strike:38,  type:"PUT",  iv:26.3, delta:-0.36,gamma:0.04, theta:-0.02, vega:0.08, oi:31200, vol:5900,  premium:0.38, spotPrice:38.90, moneyness:"OTM", risk:2, sector:"Financials",     beginner:true  },
@@ -381,6 +404,26 @@ async function fetchYahoo(symbol) {
 // Live options chain from Yahoo Finance
 // ─── SYNTHETIC OPTIONS CHAIN GENERATOR ───────────────────────────────────────
 // Generates realistic options data when live fetch is unavailable (CORS block)
+// Standalone Black-Scholes pricer — used to reprice screener options live against current spot
+function blackScholesPrice(S, K, T, iv, isCall) {
+  if (!S || !K || T<=0 || !iv) return null;
+  const sqT = Math.sqrt(T);
+  const nd = (v) => {
+    const t = 1/(1+0.2316419*Math.abs(v));
+    const p = t*(0.319381530+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));
+    return v>=0 ? 1-0.3989422803*Math.exp(-v*v/2)*p : 0.3989422803*Math.exp(-v*v/2)*p;
+  };
+  const d1 = (Math.log(S/K)+0.5*iv*iv*T)/(iv*sqT), d2 = d1-iv*sqT;
+  const N1 = nd(d1), N2 = nd(d2);
+  const callP = Math.max(0.01, S*N1-K*N2);
+  const putP  = Math.max(0.01, callP-S+K);
+  const delta = isCall ? N1 : N1-1;
+  const gamma = nd(d1)/(S*iv*sqT) || 0;
+  const theta = -(S*nd(d1)*iv/(2*sqT))/365;
+  const vega  = S*nd(d1)*sqT/100;
+  return { price: isCall?callP:putP, delta, gamma, theta, vega };
+}
+
 function generateSyntheticChain(symbol, spotPrice) {
   const S = spotPrice || SEED_PRICES[symbol] || 100;
   const iv = symbol==="TSLA"||symbol==="NVDA"||symbol==="GME"||symbol==="AMC" ? 0.58
@@ -498,52 +541,133 @@ function generateSyntheticChain(symbol, spotPrice) {
 
 // ─── LIVE OPTIONS CHAIN FETCHER ───────────────────────────────────────────────
 // Tries Yahoo Finance with 3 methods, falls back to realistic synthetic data
-async function tryFetchLiveChain(sym, qs) {
-  // Try multiple Yahoo Finance endpoints and CORS proxies with short timeouts
-  const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/options/${sym}${qs}`;
-  const proxies = [
-    `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://proxy.cors.sh/${yahooUrl}`,
+// ─── FMP OPTIONS CHAIN (primary live source) ──────────────────────────────────
+async function fetchFMPOptions(symbol, expiry) {
+  if (!API_KEYS.fmp) throw new Error("No FMP key");
+  const sym = symbol.toUpperCase();
+  let url = `https://financialmodelingprep.com/api/v4/chain?symbol=${sym}&apikey=${API_KEYS.fmp}`;
+  if (expiry) url += `&expiration=${expiry}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`FMP ${res.status}`);
+  const data = await res.json();
+  if (!data || (!data.callOptions?.length && !data.putOptions?.length &&
+                !data.callContracts?.length && !data.putContracts?.length))
+    throw new Error("FMP: no options data");
+  // Normalise FMP response — field names differ by plan level
+  const rawCalls = data.callOptions || data.callContracts || [];
+  const rawPuts  = data.putOptions  || data.putContracts  || [];
+  const norm = (arr, type) => arr.map(o => ({
+    contractSymbol: o.contractSymbol || o.symbol || `${sym}_${type}_${o.strike}`,
+    strike:         o.strike || o.strikePrice || 0,
+    lastPrice:      o.lastPrice || o.last || o.mark || 0,
+    bid:            o.bid  || 0,
+    ask:            o.ask  || 0,
+    volume:         o.volume || 0,
+    openInterest:   o.openInterest || o.openint || 0,
+    impliedVolatility: o.impliedVolatility || o.iv || 0,
+    delta:          o.delta  || 0,
+    gamma:          o.gamma  || 0,
+    theta:          o.theta  || 0,
+    vega:           o.vega   || 0,
+    inTheMoney:     o.inTheMoney || o.itm || false,
+    expiration:     o.expiration || o.expirationDate || expiry || "",
+  }));
+  const calls = norm(rawCalls, "CALL");
+  const puts  = norm(rawPuts,  "PUT");
+  const expDates = [...new Set([...calls,...puts].map(o=>o.expiration).filter(Boolean))].sort();
+  const spotPrice = data.stockPrice || data.underlyingPrice || data.currentPrice
+                  || SEED_PRICES[sym] || 100;
+  return {
+    quote: { regularMarketPrice: spotPrice, symbol: sym },
+    expirationDates: expDates.map(d => new Date(d).getTime()/1000),
+    strikes: data.strikePrices || [...new Set([...calls,...puts].map(o=>o.strike))].sort((a,b)=>a-b),
+    options: [{ calls, puts, expirationDate: expDates[0] }],
+    isSynthetic: false,
+    source: "FMP",
+  };
+}
+
+// Validate ticker using FMP quote endpoint
+async function validateTickerFMP(symbol) {
+  if (!API_KEYS.fmp) return null; // can't validate without key
+  const sym = symbol.toUpperCase();
+  const res = await fetch(
+    `https://financialmodelingprep.com/api/v3/quote/${sym}?apikey=${API_KEYS.fmp}`,
+    { signal: AbortSignal.timeout(5000) }
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) return null;
+  return { price: data[0].price, name: data[0].name, exchange: data[0].exchange };
+}
+
+// Check ticker against local stock list (instant, no API needed)
+function validateTickerLocal(symbol) {
+  const sym = symbol.toUpperCase();
+  const allTickers = [
+    ...STOCKS.SP500.map(s=>s.ticker.toUpperCase()),
+    ...STOCKS.TSX.map(s=>s.ticker.toUpperCase()),
   ];
-  // Try direct first (works on some networks)
+  return allTickers.includes(sym) || allTickers.includes(sym+".TO");
+}
+
+async function tryFetchLiveChain(sym, qs) {
+  // Try FMP first (best CORS support + most complete options data)
+  if (API_KEYS.fmp) {
+    try {
+      const expiry = qs ? new URLSearchParams(qs.replace("?","")).get("date") : null;
+      return await fetchFMPOptions(sym, expiry);
+    } catch(e) { console.warn("FMP options failed:", e.message); }
+  }
+  // Try Yahoo Finance direct (works on some networks)
+  const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/options/${sym}${qs}`;
   try {
     const res = await fetch(yahooUrl, {
-      headers:{ Accept:"application/json", "User-Agent":"Mozilla/5.0" },
-      signal: AbortSignal.timeout(2500)
+      headers:{ Accept:"application/json" },
+      signal: AbortSignal.timeout(3000)
     });
     if (res.ok) {
       const d = await res.json();
       const r = d?.optionChain?.result?.[0];
-      if (r?.options?.[0]?.calls?.length) return r;
+      if (r?.options?.[0]?.calls?.length) return { ...r, isSynthetic:false, source:"Yahoo" };
     }
   } catch(_){}
-  // Try each proxy with a 3-second limit
-  for (const proxy of proxies) {
+  // CORS proxies as last resort
+  for (const proxy of [
+    `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+  ]) {
     try {
-      const res = await fetch(proxy, { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(proxy, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         const d = await res.json();
         const r = d?.optionChain?.result?.[0];
-        if (r?.options?.[0]?.calls?.length) return r;
+        if (r?.options?.[0]?.calls?.length) return { ...r, isSynthetic:false, source:"Yahoo(proxy)" };
       }
     } catch(_){}
   }
   return null;
 }
 
-async function fetchLiveOptionsChain(symbol, date = null) {
-  const sym = symbol.toUpperCase().replace(".TO","");
-  const qs = date ? `?date=${date}` : "";
-  // Get spot price for synthetic fallback
-  const spot = SEED_PRICES[symbol] || SEED_PRICES[sym] || 100;
-  // Try to get live data (non-blocking — returns null quickly if blocked)
-  const live = await tryFetchLiveChain(sym, qs).catch(() => null);
-  if (live) return { ...live, isSynthetic: false };
-  // Always return synthetic data immediately
-  return generateSyntheticChain(sym, spot);
-}
+// fetchLiveOptionsChain — now handled directly in LiveChainView via tryFetchLiveChain + generateSyntheticChain
 
+async function fetchFMPQuote(symbol) {
+  if (!API_KEYS.fmp) throw new Error("No FMP key");
+  const sym = symbol.toUpperCase();
+  const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${sym}?apikey=${API_KEYS.fmp}`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`FMP ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data) || !data.length) throw new Error("No FMP data");
+  const q = data[0];
+  if (!q.price) throw new Error("Empty FMP quote");
+  return {
+    price: q.price, change: +(q.change||0).toFixed(2), changeP: +(q.changesPercentage||0).toFixed(2),
+    high: q.dayHigh, low: q.dayLow, open: q.open, volume: q.volume,
+    marketCap: q.marketCap, pe: q.pe, eps: q.eps,
+    yearHigh: q.yearHigh, yearLow: q.yearLow, avgVolume: q.avgVolume,
+    source: "FMP",
+  };
+}
 async function fetchFinnhub(symbol) {
   if (!API_KEYS.finnhub) throw new Error("No key");
   const s = symbol.includes(".TO") ? "TSX:"+symbol.replace(".TO","") : symbol;
@@ -553,7 +677,8 @@ async function fetchFinnhub(symbol) {
   return { price:d.c, change:+(d.c-d.pc).toFixed(2), changeP:+d.dp.toFixed(2), high:d.h, low:d.l, open:d.o, source:"Finnhub" };
 }
 async function fetchQuote(symbol) {
-  for (const fn of [fetchFinnhub, fetchYahoo]) { try { return await fn(symbol); } catch(_) {} }
+  const chain = API_KEYS.fmp ? [fetchFMPQuote, fetchFinnhub, fetchYahoo] : [fetchFinnhub, fetchYahoo];
+  for (const fn of chain) { try { return await fn(symbol); } catch(_) {} }
   return null;
 }
 async function fetchFinnhubRec(symbol) {
@@ -731,45 +856,78 @@ function LiveChainView() {
   const [chainData,setChainData]=useState(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState(null);
+  const [tickerStatus,setTickerStatus]=useState(null); // null|"valid"|"invalid"|"checking"
+  const [tickerInfo,setTickerInfo]=useState(null);     // {price,name,exchange}
   const [selectedExpiry,setSelectedExpiry]=useState(null);
   const [selectedOpt,setSelectedOpt]=useState(null);
+  const [showReport,setShowReport]=useState(false);
   const [view,setView]=useState("stats"); // stats | chain
 
   const load=async(sym,date)=>{
-    setLoading(true); setError(null);
-    // ── Step 1: Show synthetic data IMMEDIATELY (no waiting) ──────────────
+    setLoading(true); setError(null); setChainData(null); setSelectedOpt(null);
+
+    // ── Step 1: Validate ticker ───────────────────────────────────────────
+    setTickerStatus("checking");
+    const isLocallyKnown = validateTickerLocal(sym);
+    if (isLocallyKnown) {
+      setTickerStatus("valid");
+    } else if (API_KEYS.fmp) {
+      // Validate against FMP
+      const info = await validateTickerFMP(sym).catch(()=>null);
+      if (info) { setTickerStatus("valid"); setTickerInfo(info); }
+      else {
+        setTickerStatus("invalid");
+        setError(`"${sym}" is not a recognised ticker symbol. Please check the spelling and try again.`);
+        setLoading(false);
+        return;
+      }
+    } else {
+      // No FMP key — allow but warn
+      setTickerStatus("valid");
+    }
+
+    // ── Step 2: Show synthetic data instantly while fetching ──────────────
     const cleanSym = sym.toUpperCase().replace(".TO","");
-    const spot = SEED_PRICES[cleanSym] || SEED_PRICES[sym] || 100;
+    const spot = SEED_PRICES[cleanSym] || SEED_PRICES[sym] || tickerInfo?.price || 100;
     const synth = generateSyntheticChain(cleanSym, spot);
     setChainData(synth);
     if (!date && synth.expirationDates?.length) setSelectedExpiry(synth.expirationDates[0]);
     setError("synthetic");
     setLoading(false);
-    // ── Step 2: Try to upgrade to live data silently in background ─────────
+
+    // ── Step 3: Fetch real data from FMP / Yahoo in background ───────────
+    if (!API_KEYS.fmp) { setError("no_fmp_key"); return; }
     setError("fetching");
     try {
       const live = await tryFetchLiveChain(cleanSym, date ? `?date=${date}` : "");
       if (live && live.options?.[0]?.calls?.length) {
         setChainData({ ...live, isSynthetic: false });
         if (!date && live.expirationDates?.length) setSelectedExpiry(live.expirationDates[0]);
-        setError(null); // live data — no banner needed
+        setError(null);
       } else {
-        setError("synthetic"); // stay on synthetic
+        setError("synthetic");
       }
-    } catch(_) {
-      setError("synthetic");
-    }
+    } catch(_) { setError("synthetic"); }
   };
 
   useEffect(()=>{ load(ticker); },[ticker]);
 
-  const handleSearch=()=>{ const t=inputTicker.trim().toUpperCase(); if(t){ setTicker(t); setSelectedOpt(null); } };
+  const handleSearch=()=>{
+    const t=inputTicker.trim().toUpperCase();
+    if(!t) return;
+    // Basic format check — must be 1-6 letters optionally ending in .TO
+    if(!/^[A-Z]{1,6}(\.TO|\.B\.TO|\.A\.TO|\.B)?$/.test(t) && !/^[A-Z]{1,5}\.[A-Z]$/.test(t)) {
+      setTickerStatus("invalid");
+      setError(`"${t}" doesn't look like a valid ticker symbol.`);
+      return;
+    }
+    setTicker(t); setSelectedOpt(null);
+  };
 
   const calls=chainData?.options?.[0]?.calls||[];
   const puts=chainData?.options?.[0]?.puts||[];
   const underlying=chainData?.quote;
   const spotPrice=underlying?.regularMarketPrice||0;
-
   const totalCallVol=calls.reduce((a,c)=>a+(c.volume||0),0);
   const totalPutVol=puts.reduce((a,p)=>a+(p.volume||0),0);
   const totalCallOI=calls.reduce((a,c)=>a+(c.openInterest||0),0);
@@ -798,6 +956,10 @@ function LiveChainView() {
           <Badge label={isCall?"CALL":"PUT"} size="lg"/>
           <span style={{fontFamily:"monospace",color:"#94a3b8",fontSize:14}}>${o.strike} · Exp {o.expiration?new Date(o.expiration*1000).toISOString().slice(0,10):"—"}</span>
         </div>
+
+        <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+        </button>
 
         {/* Cost box */}
         <div style={{background:"linear-gradient(135deg,#0f2744,#1a1040)",border:"1px solid #1e40af",borderRadius:10,padding:14,marginBottom:10}}>
@@ -846,41 +1008,95 @@ function LiveChainView() {
           <div><strong style={{color:"#94a3b8"}}>Delta {delta}:</strong> Option moves ${Math.abs(parseFloat(delta)||0).toFixed(2)} for every $1 in stock</div>
           <div><strong style={{color:"#94a3b8"}}>Theta {theta}:</strong> Loses ~${Math.abs(parseFloat(theta)||0).toFixed(2)} in value per day</div>
           <div><strong style={{color:"#94a3b8"}}>IV {iv}%:</strong> {parseFloat(iv)>50?"High — market expects big moves":"Normal — market is calm"}</div>
-          <div style={{marginTop:4,color:"#374151"}}>⚠️ Live data from Yahoo Finance. Not financial advice.</div>
+          <div style={{marginTop:4,color:"#374151"}}>⚠️ {chainData?.isSynthetic===false?`Live data from ${chainData.source||"FMP"}.`:"Model-based data (Black-Scholes)."} Not financial advice.</div>
         </div>
+        {showReport&&<AnalystReportModal subject={{
+          ticker:`${ticker} $${o.strike} ${isCall?"CALL":"PUT"}`, name:tickerInfo?.name||ticker, category:isCall?"Call Option":"Put Option", assetType:"option",
+          price:premium, consensus:delta>0.5||parseFloat(delta)>0.5?"Bullish Bias":"Neutral",
+          counts:{"Strong Buy":0,"Buy":0,"Hold":1,"Sell":0,"Strong Sell":0}, ratingsCount:1, changeP:null,
+        }} onClose={()=>setShowReport(false)}/>}
       </div>
     );
   }
 
   return (
     <div>
-      {/* Search */}
-      <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <input value={inputTicker} onChange={e=>setInputTicker(e.target.value.toUpperCase())}
-          onKeyDown={e=>e.key==="Enter"&&handleSearch()}
-          placeholder="Enter ticker (TSLA, AAPL, SPY…)"
-          style={{flex:1,background:"#111827",border:"1px solid #1e293b",color:"#e2e8f0",borderRadius:7,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:"monospace"}}/>
-        <button onClick={handleSearch} style={{background:"#3b82f6",border:"none",color:"#fff",borderRadius:7,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>Load</button>
+      {/* Search bar with validation feedback */}
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",gap:8,marginBottom:6}}>
+          <div style={{flex:1,position:"relative"}}>
+            <input value={inputTicker} onChange={e=>{setInputTicker(e.target.value.toUpperCase());setTickerStatus(null);}}
+              onKeyDown={e=>e.key==="Enter"&&handleSearch()}
+              placeholder="Enter ticker symbol (TSLA, AAPL, SPY, RY.TO…)"
+              style={{width:"100%",boxSizing:"border-box",background:"#111827",
+                border:`1px solid ${tickerStatus==="invalid"?"#ef4444":tickerStatus==="valid"?"#22c55e":"#1e293b"}`,
+                color:"#e2e8f0",borderRadius:7,padding:"9px 36px 9px 12px",fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+            {tickerStatus==="checking"&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:14,animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</span>}
+            {tickerStatus==="valid"&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"#22c55e",fontSize:16}}>✓</span>}
+            {tickerStatus==="invalid"&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"#ef4444",fontSize:16}}>✗</span>}
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          </div>
+          <button onClick={handleSearch}
+            style={{background:"#3b82f6",border:"none",color:"#fff",borderRadius:7,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:13,flexShrink:0}}>
+            Load Chain
+          </button>
+        </div>
+        {/* Quick ticker pills */}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {["TSLA","AAPL","NVDA","SPY","QQQ","MSFT","AMZN","META","AMD","GOOGL","GME","PLTR"].map(t=>(
+            <button key={t} onClick={()=>{setInputTicker(t);setTicker(t);setSelectedOpt(null);}}
+              style={{background:ticker===t?"#1d4ed8":"#1e293b",border:`1px solid ${ticker===t?"#3b82f6":"#334155"}`,
+              color:ticker===t?"#fff":"#94a3b8",borderRadius:5,padding:"3px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading&&<div style={{textAlign:"center",padding:40,color:"#64748b"}}>⏳ Loading options chain for {ticker}…</div>}
-      {error==="fetching"&&<div style={{background:"#0c2040",border:"1px solid #1e40af",borderRadius:8,padding:"8px 12px",color:"#93c5fd",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-        <span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</span>
-        <span><strong>Black-Scholes model data showing</strong> — trying to upgrade to live Yahoo Finance data…</span>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {/* Status banners */}
+      {loading&&<div style={{textAlign:"center",padding:30,color:"#64748b"}}>
+        <div style={{fontSize:24,marginBottom:6,animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</div>
+        <div>Validating and loading {ticker}…</div>
       </div>}
-      {error==="synthetic"&&<div style={{background:"#0c2040",border:"1px solid #1e40af",borderRadius:8,padding:"8px 12px",color:"#93c5fd",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-        <span>🔬</span><span><strong>Model-based data</strong> — Live fetch blocked by CORS. Showing realistic Black-Scholes options chain — Greeks, premiums and strikes are mathematically accurate.</span>
-      </div>}
-      {error&&error!=="synthetic"&&error!=="fetching"&&<div style={{background:"#7f1d1d",borderRadius:8,padding:12,color:"#fca5a5",fontSize:12,marginBottom:12}}>{error}</div>}
 
-      {chainData&&!loading&&(
+      {!loading&&error==="no_fmp_key"&&<div style={{background:"#1c1008",border:"1px solid #92400e",borderRadius:8,padding:12,color:"#fcd34d",fontSize:12,marginBottom:10}}>
+        🔑 <strong>Add your FMP API key</strong> for real-time live options data.<br/>
+        <span style={{color:"#78716c",marginTop:4,display:"block"}}>
+          1. Go to <a href="https://site.financialmodelingprep.com" target="_blank" rel="noreferrer" style={{color:"#f59e0b"}}>financialmodelingprep.com</a> → Sign up free (250 calls/day)<br/>
+          2. Copy your API key → tap 🔑 Keys button in the header → paste under FMP → Save<br/>
+          3. Black-Scholes model data shown below until key is added
+        </span>
+      </div>}
+
+      {!loading&&error==="fetching"&&<div style={{background:"#0c2040",border:"1px solid #1e40af",borderRadius:8,padding:"8px 12px",color:"#93c5fd",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+        <span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</span>
+        <span>Fetching live options data from FMP…</span>
+      </div>}
+
+      {!loading&&error==="synthetic"&&<div style={{background:"#0c1a08",border:"1px solid #166534",borderRadius:8,padding:"8px 12px",color:"#86efac",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+        <span>🔬</span>
+        <span><strong>Black-Scholes model data</strong> — Add your FMP key for real-time live chain. Model Greeks, premiums and strikes are mathematically accurate.</span>
+      </div>}
+
+      {!loading&&chainData?.source&&!chainData.isSynthetic&&<div style={{background:"#052e16",border:"1px solid #16a34a",borderRadius:8,padding:"8px 12px",color:"#4ade80",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+        <span>✅</span><span><strong>Live real-time data</strong> from {chainData.source} · Prices, Greeks and volume are live market data</span>
+      </div>}
+
+      {tickerStatus==="invalid"&&<div style={{background:"#450a0a",border:"1px solid #991b1b",borderRadius:8,padding:12,color:"#fca5a5",fontSize:12,marginBottom:12}}>
+        ❌ {error}
+      </div>}
+
+      {!loading&&error&&!["synthetic","fetching","no_fmp_key"].includes(error)&&tickerStatus!=="invalid"&&
+        <div style={{background:"#7f1d1d",borderRadius:8,padding:12,color:"#fca5a5",fontSize:12,marginBottom:12}}>{error}</div>}
+
+      {chainData&&!loading&&tickerStatus!=="invalid"&&(
         <>
           {/* Underlying price */}
           <div style={{background:"#1e293b",borderRadius:8,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div>
               <span style={{fontFamily:"monospace",fontWeight:900,fontSize:16,color:"#f8fafc"}}>{ticker}</span>
-              <span style={{fontSize:12,color:"#94a3b8",marginLeft:8}}>{underlying?.shortName||""}</span>
+              <span style={{fontSize:12,color:"#94a3b8",marginLeft:8}}>{tickerInfo?.name||underlying?.shortName||""}</span>
+              {tickerInfo?.exchange&&<span style={{fontSize:10,color:"#64748b",marginLeft:6,background:"#0f172a",padding:"2px 6px",borderRadius:3}}>{tickerInfo.exchange}</span>}
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:18,fontWeight:800,color:"#f1f5f9"}}>${spotPrice.toFixed(2)}</div>
@@ -897,7 +1113,6 @@ function LiveChainView() {
                       setSelectedExpiry(d);
                       // Regenerate chain for new expiry using time-adjusted IV
                       const cleanSym=ticker.toUpperCase().replace(".TO","");
-                      const T=Math.max(0.01,(d-Date.now()/1000)/(365*24*3600));
                       const newChain=generateSyntheticChain(cleanSym, spotPrice||SEED_PRICES[cleanSym]||100);
                       // Update the options to use this expiry
                       newChain.options=[{
@@ -1073,9 +1288,11 @@ function ScreenerCard({opt,onClick,selected}) {
 
 // ─── SCREENER DETAIL ──────────────────────────────────────────────────────────
 function ScreenerDetail({opt,onClose}) {
+  const [showReport,setShowReport]=useState(false);
   const key=`${opt.underlying}-${opt.strike}-${opt.type}-${opt.expiry}`;
   const ratings=seedOptionsRatings(key);
   const consensus=calcConsensus(ratings);
+  const counts={}; CONSENSUS_ORDER.forEach(r=>counts[r]=0); ratings.forEach(r=>{ if(counts[r.rating]!==undefined) counts[r.rating]++; });
   const isCall=opt.type==="CALL";
   const daysToExp=Math.max(0,Math.ceil((new Date(opt.expiry)-new Date())/(1000*60*60*24)));
   const contractCost=(opt.premium*100).toFixed(2);
@@ -1095,6 +1312,10 @@ function ScreenerDetail({opt,onClose}) {
         </div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+
+      <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+      </button>
 
       <div style={{background:"linear-gradient(135deg,#0f2744,#1a1040)",border:"1px solid #1e40af",borderRadius:10,padding:14,marginBottom:10}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1135,6 +1356,10 @@ function ScreenerDetail({opt,onClose}) {
             </div>
           ))}
         </div>
+        <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:"#0f172a",borderRadius:6}}>
+          <span style={{fontSize:10,color:"#64748b"}}>Risk Level</span>
+          <span style={{fontSize:12,fontWeight:800,color:riskColor}}>{RISK_LABELS[opt.risk]||"—"}</span>
+        </div>
       </div>
 
       {/* Profit scenarios */}
@@ -1167,6 +1392,10 @@ function ScreenerDetail({opt,onClose}) {
         <div><strong style={{color:"#94a3b8"}}>Max Loss:</strong> Always limited to ${contractCost} (what you paid)</div>
         <div style={{marginTop:4,color:"#374151"}}>⚠️ Start with 1 contract. Options can expire worthless. Not financial advice.</div>
       </div>
+      {showReport&&<AnalystReportModal subject={{
+        ticker:`${opt.underlying} $${opt.strike} ${opt.type}`, name:opt.name, category:opt.sector, assetType:"option",
+        price:opt.premium, consensus, counts, ratingsCount:ratings.length, changeP:null,
+      }} onClose={()=>setShowReport(false)}/>}
     </div>
   );
 }
@@ -1239,21 +1468,257 @@ function FuturesCard({fut,data,onClick,selected}) {
   );
 }
 
+// ─── AI ANALYST REPORT MODAL ─────────────────────────────────────────────────
+function AnalystReportModal({subject, onClose}) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [phase, setPhase] = useState("Gathering analyst consensus...");
+  const [grounded, setGrounded] = useState(false); // true if live web search findings were used
+
+  useEffect(() => { generateReport(); }, []);
+
+  // Phase 1 — search the web for current, real information about this ticker
+  const researchCurrentInfo = async (ticker, name, assetType) => {
+    const q = assetType==="option" ? ticker.split(" ")[0] : ticker; // search the underlying, not the contract string
+    const prompt = `Search the web for the most recent analyst ratings, price target changes, earnings news, and market-moving headlines about ${q} (${name}). Return ONLY 4-6 short bullet points, each under 18 words, most recent/relevant first, no preamble, format:\n- fact one\n- fact two`;
+    try {
+      const res = await fetch("/api/generate-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_tokens: 1000,
+          messages: [{ role: "user", content: prompt }],
+          tools: [{ type: "web_search_20250305", name: "web_search" }]
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) return { bullets: null, grounded: false };
+      const text = (data.content||[]).map(b=>b.type==="text"?b.text:"").filter(Boolean).join("\n").trim();
+      const usedSearch = (data.content||[]).some(b=>b.type==="server_tool_use"||b.type==="web_search_tool_result");
+      if (text && usedSearch) return { bullets: text, grounded: true };
+      return { bullets: null, grounded: false };
+    } catch(_) {
+      return { bullets: null, grounded: false };
+    }
+  };
+
+  const generateReport = async () => {
+    setLoading(true); setError(null); setReport(null); setGrounded(false);
+    const { ticker, name, category, assetType, price, consensus, counts, ratingsCount, avgTarget, changeP } = subject;
+    const upside = avgTarget && price ? (((avgTarget - price) / price) * 100).toFixed(1) : null;
+    const buyCount = (counts?.["Strong Buy"]||counts?.["Bullish"]||0) + (counts?.["Buy"]||0);
+    const sellCount = (counts?.["Sell"]||counts?.["Bearish"]||0) + (counts?.["Strong Sell"]||0);
+
+    const phases = ["Searching the web for current news...","Gathering analyst consensus...","Analysing conviction evidence...","Building bull & bear cases...","Writing report..."];
+    let pi = 0;
+    const phaseTimer = setInterval(() => { pi++; if(pi<phases.length) setPhase(phases[pi]); }, 1600);
+
+    // ── Phase 1: live web research ──────────────────────────────────────
+    const research = await researchCurrentInfo(ticker, name, assetType);
+    setGrounded(research.grounded);
+
+    const bearTarget = avgTarget ? Math.round(avgTarget*0.85) : (price?Math.round(price*0.82):null);
+    const baseTarget = avgTarget ? Math.round(avgTarget) : (price?Math.round(price):null);
+    const bullTarget = avgTarget ? Math.round(avgTarget*1.18) : (price?Math.round(price*1.28):null);
+    const priceLine = assetType==="option" ? `Premium $${price?.toFixed(2)}` : `Price $${price?.toFixed(2)||"N/A"}`;
+    const researchLine = research.bullets ? `\n\nRecent real findings from live web search (use these specific facts in your evidence):\n${research.bullets}` : "";
+
+    const prompt = `You are a senior ${assetType==="option"?"options":assetType==="future"?"commodities":assetType==="index"?"macro":"equity"} research analyst. Write a CONCISE conviction-based report for ${ticker} (${name}), category: ${category}.
+
+Data: ${priceLine}, Consensus: ${consensus}, Rating split: ${JSON.stringify(counts)}, Total ratings: ${ratingsCount}${avgTarget?`, Avg Target: $${avgTarget.toFixed(2)} (${upside}% from current)`:""}${changeP!==undefined&&changeP!==null?`, Today's change: ${changeP>=0?"+":""}${changeP}%`:""}.${researchLine}
+
+Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond what JSON needs. Be extremely concise — one short sentence per evidence field, total response under 550 words${research.bullets?". Ground bullCase/bearCase/keyCatalysts in the real findings above where relevant":""}:
+{"executiveSummary":"2 sentences max, specific to ${ticker}","convictionScore":7,"convictionLabel":"short label e.g. High Conviction Buy","convictionReasoning":"1 sentence","bullCase":[{"title":"2-4 words","evidence":"1 short sentence"},{"title":"2-4 words","evidence":"1 short sentence"}],"bearCase":[{"title":"2-4 words","evidence":"1 short sentence"},{"title":"2-4 words","evidence":"1 short sentence"}],"keyCatalysts":[{"event":"short name","impact":"High","timeframe":"e.g. 2-4 weeks","description":"1 short sentence"},{"event":"short name","impact":"Medium","timeframe":"e.g. 1-3 months","description":"1 short sentence"}],"analystSentiment":"2 sentences on the ${buyCount} vs ${sellCount} split, specific to ${ticker}","keyMetrics":[{"metric":"name","value":"val","vs":"benchmark","signal":"bullish"},{"metric":"name","value":"val","vs":"benchmark","signal":"neutral"},{"metric":"name","value":"val","vs":"benchmark","signal":"bearish"}],"priceTargetBreakdown":{"bearTarget":${bearTarget||"null"},"baseTarget":${baseTarget||"null"},"bullTarget":${bullTarget||"null"},"reasoning":"1 sentence on what drives the range"},"recommendedAction":"1 sentence, specific and actionable"}`;
+
+    try {
+      const res = await fetch("/api/generate-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_tokens: 1800, messages: [{ role: "user", content: prompt }] })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.message || "server-error");
+      }
+      const raw = (data.content||[]).map(b=>b.type==="text"?b.text:"").filter(Boolean).join("\n");
+      let clean = raw.replace(/```json|```/g,"").trim();
+      let parsed;
+      try {
+        parsed = JSON.parse(clean);
+      } catch(_) {
+        // Truncated or malformed — try to salvage the largest valid JSON object substring
+        const match = clean.match(/\{[\s\S]*\}/);
+
+        if (match) {
+          try { parsed = JSON.parse(match[0]); } catch(_2) { throw new Error("parse-failed"); }
+        } else throw new Error("parse-failed");
+      }
+      setReport(parsed);
+    } catch(e) {
+      if (e.message && e.message.includes("ANTHROPIC_API_KEY")) {
+        setError(e.message);
+      } else if (e.message === "server-error" || e.message === "parse-failed") {
+        setError("Report generation was interrupted or the response was malformed. This can happen occasionally — please try again.");
+      } else {
+        setError("Could not reach the report service. Please check your connection and try again.");
+      }
+    }
+    clearInterval(phaseTimer);
+    setLoading(false);
+  };
+
+  const IMPACT_COLOR = {High:"#ef4444", Medium:"#f59e0b", Low:"#22c55e"};
+  const SIG_COLOR = {bullish:"#22c55e", bearish:"#ef4444", neutral:"#94a3b8"};
+  const convScore = report?.convictionScore || 5;
+  const convColor = convScore>=8?"#22c55e":convScore>=6?"#3b82f6":convScore>=4?"#f59e0b":"#ef4444";
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:12,overflowY:"auto"}}>
+      <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,width:"100%",maxWidth:680,marginTop:8,marginBottom:24}}>
+        <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #1e293b",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+              <span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{subject.ticker}</span>
+              <span style={{fontSize:10,background:"#1e293b",color:"#94a3b8",padding:"2px 7px",borderRadius:4}}>{subject.category}</span>
+              <span style={{fontSize:10,background:"#0c2040",color:"#60a5fa",padding:"2px 7px",borderRadius:4,fontWeight:700}}>AI ANALYST REPORT</span>
+              {!loading&&report&&(grounded
+                ? <span style={{fontSize:10,background:"#052e16",color:"#4ade80",padding:"2px 7px",borderRadius:4,fontWeight:700}}>🔍 LIVE WEB SEARCH</span>
+                : <span style={{fontSize:10,background:"#1c1008",color:"#fcd34d",padding:"2px 7px",borderRadius:4,fontWeight:700}}>🧠 MODEL REASONING</span>)}
+            </div>
+            <div style={{color:"#64748b",fontSize:11}}>{subject.name} · ${subject.price?.toFixed(2)} · {subject.consensus}</div>
+          </div>
+          <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 14px",fontSize:12,flexShrink:0}}>✕ Close</button>
+        </div>
+
+        {loading && <div style={{padding:48,textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:12,display:"inline-block",animation:"spin 1.5s linear infinite"}}>📊</div>
+          <div style={{color:"#60a5fa",fontSize:14,fontWeight:700,marginBottom:6}}>Generating Analyst Report</div>
+          <div style={{color:"#475569",fontSize:12}}>{phase}</div>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>}
+
+        {error&&!loading&&<div style={{padding:20,margin:16,background:"#450a0a",border:"1px solid #991b1b",borderRadius:8}}>
+          <div style={{color:"#fca5a5",fontSize:12,marginBottom:12}}>{error}</div>
+          <button onClick={generateReport} style={{background:"#991b1b",border:"none",color:"#fff",borderRadius:6,padding:"7px 16px",cursor:"pointer",fontSize:12,fontWeight:700}}>↻ Try Again</button>
+        </div>}
+
+        {report&&!loading&&<div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12}}>
+
+          <div style={{background:"#1e293b",borderRadius:10,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div><div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Conviction Score</div>
+                <div style={{fontSize:28,fontWeight:900,color:convColor}}>{convScore}<span style={{fontSize:13,color:"#64748b"}}>/10</span></div>
+                <div style={{fontSize:12,fontWeight:700,color:convColor}}>{report.convictionLabel}</div></div>
+              <div style={{maxWidth:260,textAlign:"right"}}><div style={{fontSize:10,color:"#64748b",marginBottom:3}}>Why this score</div><div style={{fontSize:11,color:"#94a3b8",lineHeight:1.6}}>{report.convictionReasoning}</div></div>
+            </div>
+            <div style={{background:"#0f172a",borderRadius:5,height:8,overflow:"hidden"}}><div style={{height:"100%",width:`${convScore*10}%`,background:`linear-gradient(90deg,#3b82f6,${convColor})`,transition:"width 0.8s"}}/></div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}><span style={{fontSize:9,color:"#374151"}}>Strong Sell</span><span style={{fontSize:9,color:"#374151"}}>Strong Buy</span></div>
+          </div>
+
+          <div style={{background:"#0c1a2e",border:"1px solid #1e3a5f",borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:"#60a5fa",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>📋 Executive Summary</div>
+            <div style={{fontSize:12,color:"#e2e8f0",lineHeight:1.75}}>{report.executiveSummary}</div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{background:"#052e16",border:"1px solid #166534",borderRadius:10,padding:14}}>
+              <div style={{fontSize:10,color:"#4ade80",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>🐂 Bull Case</div>
+              {report.bullCase?.map((b,i)=><div key={i} style={{marginBottom:8,paddingBottom:8,borderBottom:i<report.bullCase.length-1?"1px solid #14532d":"none"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#86efac",marginBottom:3}}>{b.title}</div>
+                <div style={{fontSize:11,color:"#4ade80",lineHeight:1.6,opacity:0.85}}>{b.evidence}</div>
+              </div>)}
+            </div>
+            <div style={{background:"#450a0a",border:"1px solid #991b1b",borderRadius:10,padding:14}}>
+              <div style={{fontSize:10,color:"#fca5a5",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>🐻 Bear Case</div>
+              {report.bearCase?.map((b,i)=><div key={i} style={{marginBottom:8,paddingBottom:8,borderBottom:i<report.bearCase.length-1?"1px solid #7f1d1d":"none"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#fca5a5",marginBottom:3}}>{b.title}</div>
+                <div style={{fontSize:11,color:"#fca5a5",lineHeight:1.6,opacity:0.85}}>{b.evidence}</div>
+              </div>)}
+            </div>
+          </div>
+
+          <div style={{background:"#1e293b",borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>⚡ Key Catalysts</div>
+            {report.keyCatalysts?.map((c,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
+              <span style={{flexShrink:0,background:`${IMPACT_COLOR[c.impact]||"#64748b"}22`,border:`1px solid ${IMPACT_COLOR[c.impact]||"#64748b"}44`,color:IMPACT_COLOR[c.impact]||"#64748b",borderRadius:4,padding:"2px 6px",fontSize:9,fontWeight:700,marginTop:2}}>{c.impact}</span>
+              <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>{c.event}</span><span style={{fontSize:10,color:"#64748b"}}>{c.timeframe}</span></div><div style={{fontSize:11,color:"#94a3b8",marginTop:2,lineHeight:1.5}}>{c.description}</div></div>
+            </div>)}
+          </div>
+
+          <div style={{background:"#1e293b",borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🎯 Analyst Sentiment</div>
+            <div style={{fontSize:12,color:"#cbd5e1",lineHeight:1.7}}>{report.analystSentiment}</div>
+          </div>
+
+          {report.priceTargetBreakdown&&<div style={{background:"#1e293b",borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>📈 Price Target Scenarios</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+              {[{label:"Bear",val:report.priceTargetBreakdown.bearTarget,c:"#ef4444",bg:"#450a0a"},{label:"Base",val:report.priceTargetBreakdown.baseTarget,c:"#3b82f6",bg:"#0c2040"},{label:"Bull",val:report.priceTargetBreakdown.bullTarget,c:"#22c55e",bg:"#052e16"}].map(t=>{
+                const up=subject.price?(((t.val-subject.price)/subject.price)*100).toFixed(0):0;
+                return <div key={t.label} style={{background:t.bg,border:`1px solid ${t.c}44`,borderRadius:7,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:10,color:"#64748b",marginBottom:2}}>{t.label}</div><div style={{fontSize:18,fontWeight:900,color:t.c}}>${t.val}</div><div style={{fontSize:11,color:t.c,opacity:0.8}}>{up>0?"+":""}{up}%</div></div>;
+              })}
+            </div>
+            <div style={{fontSize:11,color:"#64748b",lineHeight:1.6}}>{report.priceTargetBreakdown.reasoning}</div>
+          </div>}
+
+          {report.keyMetrics?.length>0&&<div style={{background:"#1e293b",borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>📊 Key Metrics</div>
+            {report.keyMetrics.map((m,i)=><div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:i<report.keyMetrics.length-1?"1px solid #0f172a":"none"}}>
+              <span style={{fontSize:12,color:"#94a3b8"}}>{m.metric}</span>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,fontWeight:700,color:"#f1f5f9"}}>{m.value}</span>
+                <span style={{fontSize:10,color:"#475569"}}>vs {m.vs}</span>
+                <span style={{fontSize:10,fontWeight:700,color:SIG_COLOR[m.signal]||"#64748b",background:`${SIG_COLOR[m.signal]||"#64748b"}18`,padding:"2px 6px",borderRadius:3,textTransform:"uppercase"}}>{m.signal}</span>
+              </div>
+            </div>)}
+          </div>}
+
+          <div style={{background:"linear-gradient(135deg,#0c2040,#0c1a08)",border:"1px solid #1e40af",borderRadius:10,padding:14,display:"flex",gap:12,alignItems:"flex-start"}}>
+            <span style={{fontSize:22,flexShrink:0}}>🎯</span>
+            <div><div style={{fontSize:10,color:"#60a5fa",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5}}>Recommended Action</div>
+            <div style={{fontSize:13,color:"#e2e8f0",fontWeight:600,lineHeight:1.6}}>{report.recommendedAction}</div></div>
+          </div>
+
+          <div style={{fontSize:10,color:"#374151",textAlign:"center",lineHeight:1.6}}>
+            {grounded?"🔍 This report incorporated live web search results for current news and analyst activity.":"🧠 Live web search was unavailable for this report — based on model reasoning and the data shown above."}<br/>
+            AI-generated for informational purposes only · Not financial advice · Always conduct your own research
+          </div>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
 function StockDetail({stock,onClose}) {
+  const [showReport,setShowReport]=useState(false);
   const ratings=stock.ratings||[]; const consensus=stock.consensus||"Hold";
   const upside=stock.avgTarget&&stock.price?(((stock.avgTarget-stock.price)/stock.price)*100).toFixed(1):null;
   const counts={}; CONSENSUS_ORDER.forEach(r=>counts[r]=0); ratings.forEach(r=>counts[r.rating]++);
   return (
     <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:20,overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{stock.ticker}</span><Badge label={consensus} size="lg"/>{stock.source&&<SourcePill source={stock.source}/>}</div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{stock.name} · {stock.sector}</div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+      </button>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         {[{l:"Price",v:stock.price?`$${stock.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—",s:stock.changeP!==undefined?`${stock.changeP>=0?"▲":"▼"} ${Math.abs(stock.changeP).toFixed(2)}%`:null,sc:stock.changeP>=0?"#22c55e":"#ef4444"},{l:"Avg Target",v:stock.avgTarget?`$${stock.avgTarget.toFixed(2)}`:"—",s:upside?`${parseFloat(upside)>=0?"+":""}${upside}% upside`:null,sc:parseFloat(upside||0)>=0?"#22c55e":"#ef4444"},{l:"Day Range",v:stock.low&&stock.high?`$${stock.low.toFixed(2)}–$${stock.high.toFixed(2)}`:"—"},{l:"Analysts",v:ratings.length||"—",s:"covering",sc:"#64748b"}].map(m=>(
           <div key={m.l} style={{background:"#1e293b",borderRadius:8,padding:"11px 13px"}}><div style={{fontSize:10,color:"#64748b",marginBottom:3}}>{m.l}</div><div style={{fontSize:16,fontWeight:800,color:"#f1f5f9"}}>{m.v}</div>{m.s&&<div style={{fontSize:11,color:m.sc||"#64748b",marginTop:2}}>{m.s}</div>}</div>
         ))}
       </div>
+      {(stock.marketCap||stock.pe||stock.yearHigh||stock.volume)&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:14}}>
+        {[
+          {l:"Market Cap",v:stock.marketCap?(stock.marketCap>=1e12?`$${(stock.marketCap/1e12).toFixed(2)}T`:stock.marketCap>=1e9?`$${(stock.marketCap/1e9).toFixed(2)}B`:`$${(stock.marketCap/1e6).toFixed(0)}M`):"—"},
+          {l:"P/E",v:stock.pe?stock.pe.toFixed(1):"—"},
+          {l:"52W Range",v:stock.yearLow&&stock.yearHigh?`$${stock.yearLow.toFixed(0)}–$${stock.yearHigh.toFixed(0)}`:"—"},
+          {l:"Volume",v:stock.volume?(stock.volume>=1e6?`${(stock.volume/1e6).toFixed(1)}M`:`${(stock.volume/1e3).toFixed(0)}K`):"—"},
+        ].map(m=>(
+          <div key={m.l} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:6,padding:"7px 8px",textAlign:"center"}}><div style={{fontSize:9,color:"#64748b"}}>{m.l}</div><div style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>{m.v}</div></div>
+        ))}
+      </div>}
       {ratings.length>0&&<>
         <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,color:"#94a3b8",marginBottom:10,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Distribution</div>
@@ -1264,39 +1729,63 @@ function StockDetail({stock,onClose}) {
           {[...ratings].sort((a,b)=>CONSENSUS_ORDER.indexOf(a.rating)-CONSENSUS_ORDER.indexOf(b.rating)).map((r,i)=>{const tgt=r.target??(stock.price?(stock.price*(r.targetMult||1)):null);const up=tgt&&stock.price?(((tgt-stock.price)/stock.price)*100).toFixed(1):null;return(<div key={i} style={{display:"flex",alignItems:"center",background:"#1e293b",borderRadius:7,padding:"9px 12px",gap:8}}><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#e2e8f0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.firm}</div><div style={{fontSize:10,color:"#64748b"}}>{r.daysAgo}d ago</div></div>{tgt&&<div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:11,color:parseFloat(up||0)>=0?"#22c55e":"#ef4444",fontWeight:600}}>${tgt.toFixed(2)}{up&&<span style={{fontSize:10}}> ({up>0?"+":""}{up}%)</span>}</div></div>}<Badge label={r.rating}/></div>);})}
         </div>
       </>}
+      {showReport&&<AnalystReportModal subject={{
+        ticker:stock.ticker, name:stock.name, category:stock.sector, assetType:"stock",
+        price:stock.price, consensus, counts, ratingsCount:ratings.length,
+        avgTarget:stock.avgTarget, changeP:stock.changeP,
+      }} onClose={()=>setShowReport(false)}/>}
     </div>
   );
 }
 
 function IndexDetail({idx,data,onClose}) {
+  const [showReport,setShowReport]=useState(false);
   const ratings=seedIndexRatings(idx.symbol);
   const bullish=ratings.filter(r=>r.outlook==="Bullish").length, bearish=ratings.filter(r=>r.outlook==="Bearish").length, neutral=ratings.filter(r=>r.outlook==="Neutral").length;
+  const majority=bullish>bearish&&bullish>neutral?"Bullish":bearish>bullish&&bearish>neutral?"Bearish":"Neutral";
   return (
     <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:20,overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
         <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{idx.region}</span><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{idx.symbol}</span></div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{idx.name}</div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+      <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+      </button>
       {data&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>{[{l:"Level",v:data.price?.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),s:`${data.changeP>=0?"▲":"▼"} ${Math.abs(data.changeP).toFixed(2)}%`,sc:data.changeP>=0?"#22c55e":"#ef4444"},{l:"Change",v:`${data.change>=0?"+":""}${data.change?.toFixed(2)}`,s:"today",sc:"#64748b"},{l:"High",v:data.high?.toFixed(2)||"—"},{l:"Low",v:data.low?.toFixed(2)||"—"}].map(m=>(<div key={m.l} style={{background:"#1e293b",borderRadius:8,padding:"11px 13px"}}><div style={{fontSize:10,color:"#64748b",marginBottom:3}}>{m.l}</div><div style={{fontSize:16,fontWeight:800,color:"#f1f5f9"}}>{m.v}</div>{m.s&&<div style={{fontSize:11,color:m.sc||"#64748b",marginTop:2}}>{m.s}</div>}</div>))}</div>}
       <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:12}}>
         <div style={{fontSize:11,color:"#94a3b8",marginBottom:10,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Analyst Outlook</div>
         {[["Bullish","#22c55e",bullish],["Neutral","#facc15",neutral],["Bearish","#ef4444",bearish]].map(([l,c,n])=>(<div key={l} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}><span style={{width:60,fontSize:11,color:"#94a3b8"}}>{l}</span><div style={{flex:1,background:"#0f172a",borderRadius:3,height:7,overflow:"hidden"}}><div style={{width:`${ratings.length?(n/ratings.length)*100:0}%`,height:"100%",background:c,transition:"width 0.5s"}}/></div><span style={{width:22,fontSize:11,color:"#64748b",textAlign:"right"}}>{n}</span></div>))}
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:5}}>{ratings.map((r,i)=>(<div key={i} style={{display:"flex",alignItems:"center",background:"#1e293b",borderRadius:7,padding:"9px 12px",gap:8}}><div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:"#e2e8f0"}}>{r.firm}</div><div style={{fontSize:10,color:"#64748b"}}>{r.daysAgo}d ago</div></div><div style={{fontSize:11,color:parseFloat(r.target)>=0?"#22c55e":"#ef4444",fontWeight:600}}>{parseFloat(r.target)>=0?"+":""}{r.target}% target</div><Badge label={r.outlook}/></div>))}</div>
+      {showReport&&<AnalystReportModal subject={{
+        ticker:idx.symbol, name:idx.name, category:"Index", assetType:"index",
+        price:data?.price, consensus:majority, counts:{Bullish:bullish,Neutral:neutral,Bearish:bearish},
+        ratingsCount:ratings.length, changeP:data?.changeP,
+      }} onClose={()=>setShowReport(false)}/>}
     </div>
   );
 }
 
 function FuturesDetail({fut,data,onClose}) {
+  const [showReport,setShowReport]=useState(false);
   const ratings=seedFuturesRatings(fut.symbol); const consensus=calcConsensus(ratings); const catColor=CAT_COLOR[fut.category]||"#64748b";
+  const counts={}; CONSENSUS_ORDER.forEach(r=>counts[r]=0); ratings.forEach(r=>{ if(counts[r.rating]!==undefined) counts[r.rating]++; });
   return (
     <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:20,overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
         <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{fut.symbol}</span><Badge label={consensus} size="lg"/></div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{fut.name} · <span style={{color:catColor}}>{fut.category}</span></div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+      <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+      </button>
       {data&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>{[{l:"Price",v:`${data.price?.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${fut.unit}`,s:`${data.changeP>=0?"▲":"▼"} ${Math.abs(data.changeP).toFixed(2)}%`,sc:data.changeP>=0?"#22c55e":"#ef4444"},{l:"Change",v:`${data.change>=0?"+":""}${data.change?.toFixed(2)}`,s:"session",sc:"#64748b"},{l:"High",v:data.high?.toFixed(2)||"—"},{l:"Low",v:data.low?.toFixed(2)||"—"}].map(m=>(<div key={m.l} style={{background:"#1e293b",borderRadius:8,padding:"11px 13px"}}><div style={{fontSize:10,color:"#64748b",marginBottom:3}}>{m.l}</div><div style={{fontSize:15,fontWeight:800,color:"#f1f5f9"}}>{m.v}</div>{m.s&&<div style={{fontSize:11,color:m.sc||"#64748b",marginTop:2}}>{m.s}</div>}</div>))}</div>}
       <div style={{display:"flex",flexDirection:"column",gap:5}}>{ratings.map((r,i)=>(<div key={i} style={{display:"flex",alignItems:"center",background:"#1e293b",borderRadius:7,padding:"9px 12px",gap:8}}><div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:"#e2e8f0"}}>{r.firm}</div><div style={{fontSize:10,color:"#64748b"}}>{r.daysAgo}d ago</div></div><div style={{fontSize:11,color:parseFloat(r.target12m)>=0?"#22c55e":"#ef4444",fontWeight:600}}>{parseFloat(r.target12m)>=0?"+":""}{(parseFloat(r.target12m)*100).toFixed(0)}% 12m</div><Badge label={r.rating}/></div>))}</div>
+      {showReport&&<AnalystReportModal subject={{
+        ticker:fut.symbol, name:fut.name, category:fut.category, assetType:"future",
+        price:data?.price, consensus, counts, ratingsCount:ratings.length, changeP:data?.changeP,
+      }} onClose={()=>setShowReport(false)}/>}
     </div>
   );
 }
@@ -1305,16 +1794,26 @@ function SettingsModal({keys,onSave,onClose}) {
   const [vals,setVals]=useState({...keys});
   return (
     <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:24,width:"100%",maxWidth:400}}>
+      <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:24,width:"100%",maxWidth:420,maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{fontSize:16,fontWeight:800,color:"#f8fafc",marginBottom:4}}>API Keys</div>
-        <div style={{fontSize:12,color:"#64748b",marginBottom:18}}>Keys stored in session only, sent directly to each provider.</div>
-        {[{key:"finnhub",label:"Finnhub",url:"https://finnhub.io"},{key:"alphavantage",label:"Alpha Vantage",url:"https://www.alphavantage.co/support/#api-key"},{key:"polygon",label:"Polygon.io",url:"https://polygon.io"}].map(p=>(
-          <div key={p.key} style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><label style={{fontSize:12,fontWeight:600,color:"#94a3b8"}}>{p.label}</label><a href={p.url} target="_blank" rel="noreferrer" style={{fontSize:10,color:"#3b82f6"}}>Get free key ↗</a></div>
+        <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Keys stored in session only, sent directly to each provider.</div>
+        <div style={{marginBottom:16,background:"#0c1a08",border:"1px solid #16a34a",borderRadius:8,padding:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#4ade80"}}>⭐ FMP — Financial Modeling Prep <span style={{fontSize:10,color:"#16a34a",background:"#052e16",padding:"1px 6px",borderRadius:3,marginLeft:4}}>LIVE OPTIONS</span></label>
+            <a href="https://site.financialmodelingprep.com" target="_blank" rel="noreferrer" style={{fontSize:10,color:"#3b82f6"}}>Get free key ↗</a>
+          </div>
+          <input value={vals.fmp||""} onChange={e=>setVals(v=>({...v,fmp:e.target.value}))} placeholder="Paste FMP API key (free — 250 calls/day)…"
+            style={{width:"100%",boxSizing:"border-box",background:"#0f172a",border:"1px solid #166534",color:"#e2e8f0",borderRadius:7,padding:"8px 12px",fontSize:12,outline:"none",fontFamily:"monospace"}}/>
+          <div style={{fontSize:10,color:"#4ade80",marginTop:4}}>✓ Real-time options chain · Greeks · Volume · OI · Ticker validation · 250 free calls/day</div>
+        </div>
+        {[{key:"finnhub",label:"Finnhub",url:"https://finnhub.io",hint:"Analyst ratings + price targets"},{key:"alphavantage",label:"Alpha Vantage",url:"https://www.alphavantage.co/support/#api-key",hint:"Global stock quotes incl. TSX"},{key:"polygon",label:"Polygon.io",url:"https://polygon.io",hint:"US stock delayed quotes"}].map(p=>(
+          <div key={p.key} style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><label style={{fontSize:12,fontWeight:600,color:"#94a3b8"}}>{p.label}</label><a href={p.url} target="_blank" rel="noreferrer" style={{fontSize:10,color:"#3b82f6"}}>Get free key ↗</a></div>
             <input value={vals[p.key]||""} onChange={e=>setVals(v=>({...v,[p.key]:e.target.value}))} placeholder={`${p.label} API key…`} style={{width:"100%",boxSizing:"border-box",background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",borderRadius:7,padding:"8px 12px",fontSize:12,outline:"none",fontFamily:"monospace"}}/>
+            <div style={{fontSize:10,color:"#475569",marginTop:2}}>{p.hint}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#475569",marginBottom:16,padding:"8px 12px",background:"#1e293b",borderRadius:6}}>💡 Yahoo Finance is always active — no key needed. Live options chain works without any key.</div>
+        <div style={{fontSize:11,color:"#475569",marginBottom:14,padding:"8px 12px",background:"#1e293b",borderRadius:6}}>💡 Yahoo Finance is always active — no key needed for stock quotes.</div>
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
           <button onClick={onClose} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:7,padding:"8px 18px",cursor:"pointer",fontSize:13}}>Cancel</button>
           <button onClick={()=>onSave(vals)} style={{background:"#3b82f6",border:"none",color:"#fff",borderRadius:7,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>Save & Refresh</button>
@@ -1323,7 +1822,6 @@ function SettingsModal({keys,onSave,onClose}) {
     </div>
   );
 }
-
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab,setTab]=useState("stocks");
@@ -1344,7 +1842,12 @@ export default function App() {
   const [lastRefresh,setLastRefresh]=useState(null);
   const loadingRef=useRef({});
 
-  useEffect(()=>{ if(apiKeys.finnhub) API_KEYS.finnhub=apiKeys.finnhub; if(apiKeys.alphavantage) API_KEYS.alphavantage=apiKeys.alphavantage; if(apiKeys.polygon) API_KEYS.polygon=apiKeys.polygon; },[apiKeys]);
+  useEffect(()=>{
+    if(apiKeys.finnhub)      API_KEYS.finnhub=apiKeys.finnhub;
+    if(apiKeys.alphavantage) API_KEYS.alphavantage=apiKeys.alphavantage;
+    if(apiKeys.polygon)      API_KEYS.polygon=apiKeys.polygon;
+    if(apiKeys.fmp)          API_KEYS.fmp=apiKeys.fmp;
+  },[apiKeys]);
   useEffect(()=>{ const t=setInterval(()=>setTime(new Date()),15000); return()=>clearInterval(t); },[]);
 
   const loadStock=useCallback(async(stock)=>{
@@ -1359,24 +1862,78 @@ export default function App() {
       ratings=[...Array(rec.strongBuy||0).fill(0).map((_,i)=>({firm:ANALYST_FIRMS[i%ANALYST_FIRMS.length],rating:"Strong Buy",daysAgo:i*3+1,target})),...Array(rec.buy||0).fill(0).map((_,i)=>({firm:ANALYST_FIRMS[(i+3)%ANALYST_FIRMS.length],rating:"Buy",daysAgo:i*4+2,target})),...Array(rec.hold||0).fill(0).map((_,i)=>({firm:ANALYST_FIRMS[(i+6)%ANALYST_FIRMS.length],rating:"Hold",daysAgo:i*5+3,target})),...Array(rec.sell||0).fill(0).map((_,i)=>({firm:ANALYST_FIRMS[(i+9)%ANALYST_FIRMS.length],rating:"Sell",daysAgo:i*6+4,target})),...Array(rec.strongSell||0).fill(0).map((_,i)=>({firm:ANALYST_FIRMS[(i+12)%ANALYST_FIRMS.length],rating:"Strong Sell",daysAgo:i*7+5,target}))];
       avgTarget=target??price;
     } else { ratings=seedRatings(stock.ticker,target); consensus=calcConsensus(ratings); avgTarget=target??(price*(0.90+Math.random()*0.28)); }
-    setStockData(p=>({...p,[key]:{...stock,loading:false,price,change:quote?.change??0,changeP:quote?.changeP??0,high:quote?.high,low:quote?.low,source:quote?.source??"Seed Data",ratings,consensus,avgTarget:+avgTarget.toFixed(2)}}));
+    setStockData(p=>({...p,[key]:{...stock,loading:false,price,change:quote?.change??0,changeP:quote?.changeP??0,high:quote?.high,low:quote?.low,volume:quote?.volume,marketCap:quote?.marketCap,pe:quote?.pe,eps:quote?.eps,yearHigh:quote?.yearHigh,yearLow:quote?.yearLow,avgVolume:quote?.avgVolume,source:quote?.source??"Seed Data",ratings,consensus,avgTarget:+avgTarget.toFixed(2)}}));
     loadingRef.current[key]=false;
   },[]);
 
   const loadIndex=useCallback(async(idx)=>{ const key=idx.symbol; if(loadingRef.current["i_"+key]) return; loadingRef.current["i_"+key]=true; const quote=await fetchYahoo(idx.ySymbol).catch(()=>null); setIndexData(p=>({...p,[key]:quote??SEED_INDEX[key]??{price:0,change:0,changeP:0}})); loadingRef.current["i_"+key]=false; },[]);
   const loadFuture=useCallback(async(fut)=>{ const key=fut.symbol; if(loadingRef.current["f_"+key]) return; loadingRef.current["f_"+key]=true; const quote=await fetchYahoo(fut.symbol).catch(()=>null); setFuturesData(p=>({...p,[key]:quote??SEED_FUTURES[key]??{price:0,change:0,changeP:0}})); loadingRef.current["f_"+key]=false; },[]);
 
+  // ── Live screener repricing — fetch current spot prices, recompute premium/Greeks ──
+  const [screenerSpots,setScreenerSpots]=useState({});
+  const [screenerLive,setScreenerLive]=useState(false);
+  const [screenerUpdated,setScreenerUpdated]=useState(null);
+  const loadScreenerPrices=useCallback(async()=>{
+    const tickers=[...new Set(OPTIONS_SCREENER.map(o=>o.underlying))];
+    if(API_KEYS.fmp){
+      try{
+        const res=await fetch(`https://financialmodelingprep.com/api/v3/quote/${tickers.join(",")}?apikey=${API_KEYS.fmp}`,{signal:AbortSignal.timeout(6000)});
+        if(res.ok){
+          const data=await res.json();
+          if(Array.isArray(data)&&data.length){
+            const map={}; data.forEach(q=>{ if(q.symbol&&q.price) map[q.symbol]=q.price; });
+            setScreenerSpots(map); setScreenerLive(true); setScreenerUpdated(new Date());
+            return;
+          }
+        }
+      }catch(_){}
+    }
+    // Fallback: Yahoo per-ticker (small concurrency-limited batch)
+    const map={};
+    await Promise.all(tickers.map(async t=>{
+      const q=await fetchYahoo(t).catch(()=>null);
+      map[t]=q?.price??SEED_PRICES[t]??null;
+    }));
+    setScreenerSpots(map); setScreenerLive(false); setScreenerUpdated(new Date());
+  },[]);
+  useEffect(()=>{ loadScreenerPrices(); const t=setInterval(loadScreenerPrices,120000); return()=>clearInterval(t); },[loadScreenerPrices]);
+
+  const liveScreenerOptions=useMemo(()=>{
+    const expiries=getUpcomingExpiries(); // always-future dates, recalculated fresh
+    return OPTIONS_SCREENER.map((o,i)=>{
+      // Deterministically assign an active expiry — same contract always gets the same
+      // slot within a session, but it's always a real upcoming Friday, never stale.
+      const seed=(o.underlying+o.strike+o.type).split("").reduce((a,c)=>a+c.charCodeAt(0),0);
+      const activeExpiry=expiries[(seed+i)%expiries.length];
+      const spot=screenerSpots[o.underlying];
+      const daysToExp=Math.max(1,Math.ceil((new Date(activeExpiry)-new Date())/(1000*60*60*24)));
+      if(!spot) return {...o, expiry:activeExpiry}; // no live price yet — keep seed premium, but fix expiry
+      const T=daysToExp/365;
+      const bs=blackScholesPrice(spot,o.strike,T,o.iv/100,o.type==="CALL");
+      if(!bs) return {...o, expiry:activeExpiry, spotPrice:spot};
+      return {
+        ...o, expiry:activeExpiry, spotPrice:spot,
+        premium:+bs.price.toFixed(2),
+        delta:+bs.delta.toFixed(4), gamma:+bs.gamma.toFixed(4),
+        theta:+bs.theta.toFixed(4), vega:+bs.vega.toFixed(4),
+        moneyness: o.type==="CALL" ? (spot>o.strike*1.02?"ITM":spot<o.strike*0.98?"OTM":"ATM")
+                                    : (spot<o.strike*0.98?"ITM":spot>o.strike*1.02?"OTM":"ATM"),
+        isLivePriced: true,
+      };
+    });
+  },[screenerSpots]);
+
   useEffect(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },[subTab,loadStock,loadIndex,loadFuture]);
   useEffect(()=>{ const t=setInterval(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },60000); return()=>clearInterval(t); },[subTab,loadStock,loadIndex,loadFuture]);
 
-  const handleSaveKeys=(vals)=>{ sessionStorage.setItem("av_keys",JSON.stringify(vals)); setApiKeys(vals); setShowSettings(false); loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); };
+  const handleSaveKeys=(vals)=>{ sessionStorage.setItem("av_keys",JSON.stringify(vals)); setApiKeys(vals); setShowSettings(false); loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); setTimeout(loadScreenerPrices,200); };
 
   const mktOpen=time.getHours()>=9&&time.getHours()<16;
-  const keysConfigured=[apiKeys.finnhub,apiKeys.alphavantage,apiKeys.polygon].filter(k=>k&&k.length>10).length;
+  const keysConfigured=[apiKeys.fmp,apiKeys.finnhub,apiKeys.alphavantage,apiKeys.polygon].filter(k=>k&&k.length>10).length;
   const currentStocks=STOCKS[subTab]?.map(s=>stockData[s.ticker]||{...s,loading:true})||[];
   const filteredStocks=currentStocks.filter(s=>{ const q=search.toLowerCase(); return !q||s.ticker.toLowerCase().includes(q)||s.name.toLowerCase().includes(q)||s.sector.toLowerCase().includes(q); });
   const activeTier=BUDGET_TIERS.find(t=>t.id===budgetFilter)||BUDGET_TIERS[0];
-  const filteredScreener=OPTIONS_SCREENER.filter(o=>{ const q=search.toLowerCase(); const matchSearch=!q||o.underlying.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)||o.sector?.toLowerCase().includes(q); const matchType=optFilter==="ALL"||o.type===optFilter; const cc=o.premium*100; const matchBudget=budgetFilter==="all"||(activeTier.specOnly?o.risk>=4:(cc<activeTier.max&&o.risk<4)); return matchSearch&&matchType&&matchBudget&&(!beginnerOnly||o.beginner); }).sort((a,b)=>a.premium*100-b.premium*100);
+  const filteredScreener=liveScreenerOptions.filter(o=>{ const daysLeft=Math.ceil((new Date(o.expiry)-new Date())/(1000*60*60*24)); if(daysLeft<=0) return false; const q=search.toLowerCase(); const matchSearch=!q||o.underlying.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)||o.sector?.toLowerCase().includes(q); const matchType=optFilter==="ALL"||o.type===optFilter; const cc=o.premium*100; const matchBudget=budgetFilter==="all"||(activeTier.specOnly?o.risk>=4:(cc<activeTier.max&&o.risk<4)); return matchSearch&&matchType&&matchBudget&&(!beginnerOnly||o.beginner); }).sort((a,b)=>a.premium*100-b.premium*100);
   const futCategories=["All",...new Set(FUTURES.map(f=>f.category))];
   const filteredFutures=FUTURES.filter(f=>{ const q=search.toLowerCase(); return(!q||f.name.toLowerCase().includes(q)||f.symbol.toLowerCase().includes(q))&&(futFilter==="All"||f.category===futFilter); });
   const filteredIndices=INDICES.filter(i=>{ const q=search.toLowerCase(); return !q||i.symbol.toLowerCase().includes(q)||i.name.toLowerCase().includes(q); });
@@ -1425,7 +1982,10 @@ export default function App() {
             <div style={{background:"#060e1a",borderBottom:"1px solid #111827",padding:"7px 16px",display:"flex",gap:6,flexShrink:0,overflowX:"auto",alignItems:"center"}}>
               <span style={{fontSize:10,color:"#475569",flexShrink:0}}>Budget:</span>
               {BUDGET_TIERS.map(tier=>(<button key={tier.id} onClick={()=>setBudgetFilter(tier.id)} style={{background:budgetFilter===tier.id?`${tier.color}22`:"#111827",border:`1px solid ${budgetFilter===tier.id?tier.color:"#1f2937"}`,color:budgetFilter===tier.id?tier.color:"#64748b",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>{tier.label}</button>))}
-              <span style={{fontSize:10,color:"#374151",marginLeft:"auto",flexShrink:0}}>{filteredScreener.length} · cheapest first</span>
+              <span style={{fontSize:10,color:screenerLive?"#4ade80":"#94a3b8",marginLeft:"auto",flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
+                <span>{screenerLive?"🟢":"🔬"}</span>
+                <span>{filteredScreener.length} · cheapest first · {screenerLive?"live prices":"model prices"}{screenerUpdated?` · ${screenerUpdated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:""}</span>
+              </span>
             </div>
           )}
         </>
