@@ -1492,6 +1492,11 @@ function AnalystReportModal({subject, onClose}) {
           tools: [{ type: "web_search_20250305", name: "web_search" }]
         })
       });
+      const ct = res.headers.get("content-type")||"";
+      if (!ct.includes("application/json")) {
+        // Got HTML back — the /api function isn't running in this environment (e.g. plain `npm start`)
+        return { bullets: null, grounded: false, noApiRoute: true };
+      }
       const data = await res.json();
       if (!res.ok || data.error) return { bullets: null, grounded: false };
       const text = (data.content||[]).map(b=>b.type==="text"?b.text:"").filter(Boolean).join("\n").trim();
@@ -1537,6 +1542,10 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max_tokens: 1800, messages: [{ role: "user", content: prompt }] })
       });
+      const ct = res.headers.get("content-type")||"";
+      if (!ct.includes("application/json")) {
+        throw new Error("no-api-route");
+      }
       const data = await res.json();
       if (!res.ok || data.error) {
         throw new Error(data.message || "server-error");
@@ -1556,7 +1565,9 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
       }
       setReport(parsed);
     } catch(e) {
-      if (e.message && e.message.includes("ANTHROPIC_API_KEY")) {
+      if (e.message === "no-api-route") {
+        setError("This feature needs your site's backend, which only runs when deployed on Vercel (or via 'vercel dev' locally) — it can't work with a plain 'npm start' on localhost. Test it on your live analystview.vercel.app URL instead, or see the setup notes below.");
+      } else if (e.message && e.message.includes("ANTHROPIC_API_KEY")) {
         setError(e.message);
       } else if (e.message === "server-error" || e.message === "parse-failed") {
         setError("Report generation was interrupted or the response was malformed. This can happen occasionally — please try again.");
