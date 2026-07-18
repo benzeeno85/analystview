@@ -1,73 +1,124 @@
-﻿// Vercel serverless function — proxies AI report requests to Anthropic's API.
-// This runs on Vercel's server, NOT in the browser, so your API key stays secret.
+﻿// Vercel serverless function — generates AI reports with automatic provider fallback.
+// Priority: Anthropic (if key set and has credits) -> Google Gemini (free tier).
 //
-// SETUP (one-time):
-// 1. Get a free API key at https://console.anthropic.com  (Settings -> API Keys -> Create Key)
-// 2. Go to your Vercel project -> Settings -> Environment Variables
-// 3. Add: Name = ANTHROPIC_API_KEY, Value = <paste your key>, apply to Production + Preview + Development
-// 4. Redeploy (Vercel -> Deployments -> ... -> Redeploy), or just `git push` again
+// SETUP:
+//   Vercel -> Settings -> Environment Variables:
+//     ANTHROPIC_API_KEY  (optional, from console.anthropic.com — paid, min $5 credits)
+//     GEMINI_API_KEY     (free, from https://aistudio.google.com/apikey — no credit card)
+//   Then redeploy.
 
-// Extends this function's execution limit from Vercel's default (10s) up to 60s.
-// AI report generation can legitimately take 10-20+ seconds, so the default
-// timeout was very likely killing the request mid-generation.
 export const config = {
   maxDuration: 60,
 };
 
+// ── Gemini helpers ───────────────────────────────────────────────────────────
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+
+async function callGemini(apiKey, messages, wantSearch, maxTokens) {
+  // Convert Anthropic-style messages to a single Gemini prompt
+  const prompt = messages.map(m => (typeof m.content === "string" ? m.content : "")).join("\n\n");
+  let lastErr = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const body = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: maxTokens || 1500 },
+        ...(wantSearch ? { tools: [{ google_search: {} }] } : {}),
+      };
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const d = await r.json();
+      if (!r.ok) { lastErr = d?.error?.message || `Gemini ${r.status}`; continue; }
+      const text = (d?.candidates?.[0]?.content?.parts || [])
+        .map(p => p.text || "").filter(Boolean).join("\n").trim();
+      if (!text) { lastErr = "Gemini returned empty response"; continue; }
+      // Normalise to Anthropic response shape so the frontend needs no changes
+      const content = [];
+      if (wantSearch && d?.candidates?.[0]?.groundingMetadata) {
+        content.push({ type: "web_search_tool_result", content: [] });
+      }
+      content.push({ type: "text", text });
+      return { ok: true, data: { content, provider: `gemini:${model}` } };
+    } catch (e) { lastErr = e.message; }
+  }
+  return { ok: false, error: lastErr || "All Gemini models failed" };
+}
+
+// ── Anthropic helper ─────────────────────────────────────────────────────────
+async function callAnthropic(apiKey, messages, tools, maxTokens) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: maxTokens || 1500,
+      messages,
+      ...(tools ? { tools } : {}),
+    }),
+  });
+  const d = await r.json();
+  if (!r.ok) return { ok: false, status: r.status, error: d?.error?.message || "Anthropic API request failed" };
+  return { ok: true, data: d };
+}
+
+// ── Handler ──────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // Allow the request from your own site only (basic CORS safety)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (!anthropicKey && !geminiKey) {
     return res.status(500).json({
       error: "missing_api_key",
-      message: "ANTHROPIC_API_KEY is not set on the server. Add it in Vercel -> Settings -> Environment Variables, then redeploy."
+      message: "No AI provider key is set. Add GEMINI_API_KEY (free, from aistudio.google.com/apikey) and/or ANTHROPIC_API_KEY in Vercel -> Settings -> Environment Variables, then redeploy."
     });
   }
 
+  const { messages, tools, max_tokens } = req.body || {};
+  if (!messages) {
+    return res.status(400).json({ error: "bad_request", message: "Missing 'messages' in request body." });
+  }
+  const wantSearch = Array.isArray(tools) && tools.length > 0;
+
   try {
-    const { messages, tools, max_tokens } = req.body || {};
-    if (!messages) {
-      return res.status(400).json({ error: "bad_request", message: "Missing 'messages' in request body." });
+    // 1) Try Anthropic first if a key is present
+    if (anthropicKey) {
+      const a = await callAnthropic(anthropicKey, messages, tools, max_tokens);
+      if (a.ok) return res.status(200).json(a.data);
+      console.error("Anthropic failed, will try Gemini fallback:", a.status, a.error);
+      // fall through to Gemini regardless of the reason (credits, rate limit, etc.)
     }
 
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5",
-        max_tokens: max_tokens || 1500,
-        messages,
-        ...(tools ? { tools } : {}),
-      }),
+    // 2) Gemini fallback (or primary, if no Anthropic key)
+    if (geminiKey) {
+      const g = await callGemini(geminiKey, messages, wantSearch, max_tokens);
+      if (g.ok) return res.status(200).json(g.data);
+      console.error("Gemini also failed:", g.error);
+      return res.status(502).json({ error: "all_providers_failed", message: `Gemini error: ${g.error}` });
+    }
+
+    // Anthropic failed and no Gemini key configured
+    return res.status(502).json({
+      error: "anthropic_api_error",
+      message: "Anthropic request failed and no GEMINI_API_KEY fallback is configured. Add a free Gemini key (aistudio.google.com/apikey) in Vercel -> Settings -> Environment Variables."
     });
-
-    const data = await anthropicRes.json();
-
-    if (!anthropicRes.ok) {
-      // Log the full error server-side so it's visible in Vercel -> Deployments -> Logs
-      console.error("Anthropic API rejected the request:", anthropicRes.status, JSON.stringify(data));
-      return res.status(anthropicRes.status).json({
-        error: "anthropic_api_error",
-        message: data?.error?.message || "Anthropic API request failed",
-        details: data,
-      });
-    }
-
-    return res.status(200).json(data);
   } catch (e) {
+    console.error("Server error:", e);
     return res.status(500).json({ error: "server_error", message: e.message });
   }
 }
