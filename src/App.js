@@ -1492,7 +1492,8 @@ function AnalystReportModal({subject, onClose}) {
           max_tokens: 1000,
           messages: [{ role: "user", content: prompt }],
           tools: [{ type: "web_search_20250305", name: "web_search" }]
-        })
+        }),
+        signal: AbortSignal.timeout(25000)
       });
       const ct = res.headers.get("content-type")||"";
       if (!ct.includes("application/json")) {
@@ -1542,7 +1543,8 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
       const res = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_tokens: 1800, messages: [{ role: "user", content: prompt }] })
+        body: JSON.stringify({ max_tokens: 1800, messages: [{ role: "user", content: prompt }] }),
+        signal: AbortSignal.timeout(45000)
       });
       const ct = res.headers.get("content-type")||"";
       if (!ct.includes("application/json")) {
@@ -1567,14 +1569,18 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
       }
       setReport(parsed);
     } catch(e) {
-      if (e.message === "no-api-route") {
+      if (e.name === "TimeoutError") {
+        setError("The report took longer than 45 seconds to generate and timed out. This can happen when the AI service is under heavy load. Please try again — it usually succeeds on retry.");
+      } else if (e.message === "no-api-route") {
         setError("This feature needs your site's backend, which only runs when deployed on Vercel (or via 'vercel dev' locally) — it can't work with a plain 'npm start' on localhost. Test it on your live analystview.vercel.app URL instead, or see the setup notes below.");
       } else if (e.message && e.message.includes("ANTHROPIC_API_KEY")) {
         setError(e.message);
       } else if (e.message === "server-error" || e.message === "parse-failed") {
         setError("Report generation was interrupted or the response was malformed. This can happen occasionally — please try again.");
+      } else if (e.name === "TypeError" && e.message.includes("fetch")) {
+        setError("A network-level error occurred reaching the report service (this usually means the serverless function crashed or hit an internal error). Check Vercel → your project → Deployments → your latest deployment → Functions → generate-report for the exact server-side error log.");
       } else {
-        setError("Could not reach the report service. Please check your connection and try again.");
+        setError(`Could not reach the report service. Technical detail: ${e.name || "Error"} — ${e.message || "unknown"}. Check Vercel's function logs for more detail.`);
       }
     }
     clearInterval(phaseTimer);
