@@ -24,7 +24,14 @@ async function callGemini(apiKey, messages, wantSearch, maxTokens) {
     try {
       const body = {
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: maxTokens || 1500 },
+        generationConfig: {
+          // Gemini 3.x models spend "thinking" tokens that count against this limit,
+          // so give ample headroom to avoid the JSON being truncated mid-response.
+          maxOutputTokens: Math.max((maxTokens || 1500) * 4, 8192),
+          // When the caller wants structured output (the report call, no search tools),
+          // force valid JSON at the API level so parsing can never fail on formatting.
+          ...(wantSearch ? {} : { responseMimeType: "application/json" }),
+        },
         ...(wantSearch ? { tools: [{ google_search: {} }] } : {}),
       };
       const r = await fetch(
