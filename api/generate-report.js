@@ -12,12 +12,14 @@ export const config = {
 };
 
 // ── Gemini helpers ───────────────────────────────────────────────────────────
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+// Model IDs verified current as of July 2026 — tried in order until one succeeds.
+// (Google retired gemini-2.5-flash / -lite for new API keys in 2026.)
+const GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash-preview"];
 
 async function callGemini(apiKey, messages, wantSearch, maxTokens) {
   // Convert Anthropic-style messages to a single Gemini prompt
   const prompt = messages.map(m => (typeof m.content === "string" ? m.content : "")).join("\n\n");
-  let lastErr = null;
+  const errors = [];
   for (const model of GEMINI_MODELS) {
     try {
       const body = {
@@ -34,10 +36,10 @@ async function callGemini(apiKey, messages, wantSearch, maxTokens) {
         }
       );
       const d = await r.json();
-      if (!r.ok) { lastErr = d?.error?.message || `Gemini ${r.status}`; continue; }
+      if (!r.ok) { errors.push(`${model}: ${d?.error?.message || `HTTP ${r.status}`}`); continue; }
       const text = (d?.candidates?.[0]?.content?.parts || [])
         .map(p => p.text || "").filter(Boolean).join("\n").trim();
-      if (!text) { lastErr = "Gemini returned empty response"; continue; }
+      if (!text) { errors.push(`${model}: empty response`); continue; }
       // Normalise to Anthropic response shape so the frontend needs no changes
       const content = [];
       if (wantSearch && d?.candidates?.[0]?.groundingMetadata) {
@@ -45,9 +47,9 @@ async function callGemini(apiKey, messages, wantSearch, maxTokens) {
       }
       content.push({ type: "text", text });
       return { ok: true, data: { content, provider: `gemini:${model}` } };
-    } catch (e) { lastErr = e.message; }
+    } catch (e) { errors.push(`${model}: ${e.message}`); }
   }
-  return { ok: false, error: lastErr || "All Gemini models failed" };
+  return { ok: false, error: errors.join(" | ") || "All Gemini models failed" };
 }
 
 // ── Anthropic helper ─────────────────────────────────────────────────────────
