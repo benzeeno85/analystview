@@ -1,7 +1,21 @@
 ﻿// Vercel serverless function — proxies AI report requests to Anthropic's API.
 // This runs on Vercel's server, NOT in the browser, so your API key stays secret.
+//
+// SETUP (one-time):
+// 1. Get a free API key at https://console.anthropic.com  (Settings -> API Keys -> Create Key)
+// 2. Go to your Vercel project -> Settings -> Environment Variables
+// 3. Add: Name = ANTHROPIC_API_KEY, Value = <paste your key>, apply to Production + Preview + Development
+// 4. Redeploy (Vercel -> Deployments -> ... -> Redeploy), or just `git push` again
+
+// Extends this function's execution limit from Vercel's default (10s) up to 60s.
+// AI report generation can legitimately take 10-20+ seconds, so the default
+// timeout was very likely killing the request mid-generation.
+export const config = {
+  maxDuration: 60,
+};
 
 export default async function handler(req, res) {
+  // Allow the request from your own site only (basic CORS safety)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -43,6 +57,8 @@ export default async function handler(req, res) {
     const data = await anthropicRes.json();
 
     if (!anthropicRes.ok) {
+      // Log the full error server-side so it's visible in Vercel -> Deployments -> Logs
+      console.error("Anthropic API rejected the request:", anthropicRes.status, JSON.stringify(data));
       return res.status(anthropicRes.status).json({
         error: "anthropic_api_error",
         message: data?.error?.message || "Anthropic API request failed",
