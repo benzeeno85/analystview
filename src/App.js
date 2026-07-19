@@ -1935,45 +1935,83 @@ export default function App() {
   const loadIndex=useCallback(async(idx)=>{ const key=idx.symbol; if(loadingRef.current["i_"+key]) return; loadingRef.current["i_"+key]=true; const quote=await fetchYahoo(idx.ySymbol).catch(()=>null); setIndexData(p=>({...p,[key]:quote??SEED_INDEX[key]??{price:0,change:0,changeP:0}})); loadingRef.current["i_"+key]=false; },[]);
   const loadFuture=useCallback(async(fut)=>{ const key=fut.symbol; if(loadingRef.current["f_"+key]) return; loadingRef.current["f_"+key]=true; const quote=await fetchYahoo(fut.symbol).catch(()=>null); setFuturesData(p=>({...p,[key]:quote??SEED_FUTURES[key]??{price:0,change:0,changeP:0}})); loadingRef.current["f_"+key]=false; },[]);
 
-  // ── Live screener repricing — fetch current spot prices, recompute premium/Greeks ──
-  const [screenerSpots,setScreenerSpots]=useState({});
+  // ── REAL OPTIONS SCREENER — pulls actual live contracts from real chains via our proxy ──
+  // Real strikes, real premiums (market last/bid/ask), real IV, real volume & OI.
+  // Greeks are computed from each contract's own real IV (standard broker practice).
+  const [realScreener,setRealScreener]=useState([]);
   const [screenerLive,setScreenerLive]=useState(false);
   const [screenerUpdated,setScreenerUpdated]=useState(null);
-  const loadScreenerPrices=useCallback(async()=>{
-    const tickers=[...new Set(OPTIONS_SCREENER.map(o=>o.underlying))];
-    if(API_KEYS.fmp){
-      try{
-        const res=await fetch(`https://financialmodelingprep.com/api/v3/quote/${tickers.join(",")}?apikey=${API_KEYS.fmp}`,{signal:AbortSignal.timeout(6000)});
-        if(res.ok){
-          const data=await res.json();
-          if(Array.isArray(data)&&data.length){
-            const map={}; data.forEach(q=>{ if(q.symbol&&q.price) map[q.symbol]=q.price; });
-            setScreenerSpots(map); setScreenerLive(true); setScreenerUpdated(new Date());
-            return;
-          }
-        }
-      }catch(_){}
-    }
-    // Fallback: Yahoo per-ticker (small concurrency-limited batch)
-    const map={};
-    await Promise.all(tickers.map(async t=>{
-      const q=await fetchYahoo(t).catch(()=>null);
-      map[t]=q?.price??SEED_PRICES[t]??null;
-    }));
-    setScreenerSpots(map); setScreenerLive(false); setScreenerUpdated(new Date());
+  const SCREENER_UNDERLYINGS=useMemo(()=>["AAPL","MSFT","NVDA","TSLA","AMZN","META","SPY","QQQ","AMD","BAC","F","PFE","GME","PLTR"],[]);
+  const tickerMeta=useMemo(()=>{
+    const m={};
+    [...STOCKS.SP500,...STOCKS.TSX].forEach(s=>{ m[s.ticker.replace(".TO","")]={name:s.name,sector:s.sector}; });
+    return m;
   },[]);
+
+  const loadScreenerPrices=useCallback(async()=>{
+    const results=[];
+    let anyLive=false;
+    await Promise.all(SCREENER_UNDERLYINGS.map(async(sym)=>{
+      try{
+        const res=await fetch(`/api/market-data?type=options&symbol=${sym}`,{signal:AbortSignal.timeout(10000)});
+        const ct=res.headers.get("content-type")||"";
+        if(!res.ok||!ct.includes("application/json")) return;
+        const d=await res.json();
+        const r=d?.optionChain?.result?.[0];
+        const spot=r?.quote?.regularMarketPrice;
+        const expTs=r?.options?.[0]?.expirationDate;
+        if(!r||!spot||!r.options?.[0]) return;
+        const expiryISO=expTs?new Date(expTs*1000).toISOString().slice(0,10):null;
+        const daysToExp=expTs?Math.max(1,Math.ceil((expTs*1000-Date.now())/(1000*60*60*24))):30;
+        const T=daysToExp/365;
+        const meta=tickerMeta[sym]||{};
+        const pickContracts=(arr,isCall)=>{
+          // Real contracts near the money with real liquidity, cheapest OTM first
+          const valid=(arr||[]).filter(c=>c.strike&&(c.lastPrice>0||c.bid>0)&&Math.abs(c.strike-spot)/spot<=0.15);
+          const otm=valid.filter(c=>isCall?c.strike>=spot:c.strike<=spot)
+            .sort((a,b)=>isCall?(a.strike-b.strike):(b.strike-a.strike)).slice(0,2);
+          return otm.map(c=>{
+            const premium=c.lastPrice>0?c.lastPrice:((c.bid+(c.ask||c.bid))/2);
+            const ivPct=(c.impliedVolatility||0.3)*100;
+            const bs=blackScholesPrice(spot,c.strike,T,(c.impliedVolatility||0.3),isCall);
+            const risk=ivPct<25?1:ivPct<40?2:ivPct<70?3:4;
+            const cost=premium*100;
+            return {
+              underlying:sym, name:meta.name||sym, sector:meta.sector||"—",
+              expiry:expiryISO, strike:c.strike, type:isCall?"CALL":"PUT",
+              iv:+ivPct.toFixed(1),
+              delta:bs?+bs.delta.toFixed(4):0, gamma:bs?+bs.gamma.toFixed(4):0,
+              theta:bs?+bs.theta.toFixed(4):0, vega:bs?+bs.vega.toFixed(4):0,
+              oi:c.openInterest||0, vol:c.volume||0,
+              premium:+premium.toFixed(2), spotPrice:spot,
+              moneyness:c.inTheMoney?"ITM":(Math.abs(c.strike-spot)/spot<0.02?"ATM":"OTM"),
+              risk, beginner:risk<=2&&cost<=300, isLivePriced:true, isRealContract:true,
+            };
+          });
+        };
+        const contracts=[...pickContracts(r.options[0].calls,true),...pickContracts(r.options[0].puts,false)];
+        if(contracts.length){ results.push(...contracts); anyLive=true; }
+      }catch(_){}
+    }));
+    if(results.length){
+      setRealScreener(results); setScreenerLive(anyLive); setScreenerUpdated(new Date());
+    } else {
+      setScreenerLive(false); setScreenerUpdated(new Date());
+    }
+  },[SCREENER_UNDERLYINGS,tickerMeta]);
   useEffect(()=>{ loadScreenerPrices(); const t=setInterval(loadScreenerPrices,120000); return()=>clearInterval(t); },[loadScreenerPrices]);
 
+  // Fallback ONLY when no real contracts could be loaded (e.g. localhost without proxy):
+  // synthetic contracts around a seed spot — clearly labelled as model data by the badge.
   const liveScreenerOptions=useMemo(()=>{
-    const expiries=getUpcomingExpiries(); // always-future dates, recalculated fresh
+    if(realScreener.length) return realScreener; // REAL live contracts — no modelling
+    const expiries=getUpcomingExpiries();
     return OPTIONS_SCREENER.map((o,i)=>{
-      // Deterministically assign an active expiry — same contract always gets the same
-      // slot within a session, but it's always a real upcoming Friday, never stale.
       const seed=(o.underlying+o.strike+o.type).split("").reduce((a,c)=>a+c.charCodeAt(0),0);
       const activeExpiry=expiries[(seed+i)%expiries.length];
-      const spot=screenerSpots[o.underlying];
+      const spot=SEED_PRICES[o.underlying];
       const daysToExp=Math.max(1,Math.ceil((new Date(activeExpiry)-new Date())/(1000*60*60*24)));
-      if(!spot) return {...o, expiry:activeExpiry}; // no live price yet — keep seed premium, but fix expiry
+      if(!spot) return {...o, expiry:activeExpiry};
       const T=daysToExp/365;
       const bs=blackScholesPrice(spot,o.strike,T,o.iv/100,o.type==="CALL");
       if(!bs) return {...o, expiry:activeExpiry, spotPrice:spot};
@@ -1984,10 +2022,9 @@ export default function App() {
         theta:+bs.theta.toFixed(4), vega:+bs.vega.toFixed(4),
         moneyness: o.type==="CALL" ? (spot>o.strike*1.02?"ITM":spot<o.strike*0.98?"OTM":"ATM")
                                     : (spot<o.strike*0.98?"ITM":spot>o.strike*1.02?"OTM":"ATM"),
-        isLivePriced: true,
       };
     });
-  },[screenerSpots]);
+  },[realScreener]);
 
   useEffect(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },[subTab,loadStock,loadIndex,loadFuture]);
   useEffect(()=>{ const t=setInterval(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },60000); return()=>clearInterval(t); },[subTab,loadStock,loadIndex,loadFuture]);
@@ -2050,7 +2087,7 @@ export default function App() {
               {BUDGET_TIERS.map(tier=>(<button key={tier.id} onClick={()=>setBudgetFilter(tier.id)} style={{background:budgetFilter===tier.id?`${tier.color}22`:"#111827",border:`1px solid ${budgetFilter===tier.id?tier.color:"#1f2937"}`,color:budgetFilter===tier.id?tier.color:"#64748b",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>{tier.label}</button>))}
               <span style={{fontSize:10,color:screenerLive?"#4ade80":"#94a3b8",marginLeft:"auto",flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
                 <span>{screenerLive?"🟢":"🔬"}</span>
-                <span>{filteredScreener.length} · cheapest first · {screenerLive?"live prices":"model prices"}{screenerUpdated?` · ${screenerUpdated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:""}</span>
+                <span>{filteredScreener.length} · cheapest first · {screenerLive?"REAL live contracts":"model fallback"}{screenerUpdated?` · ${screenerUpdated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:""}</span>
               </span>
             </div>
           )}
