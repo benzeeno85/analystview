@@ -387,11 +387,7 @@ const SEED_FUTURES = {
 };
 
 // ─── DATA PROVIDERS ──────────────────────────────────────────────────────────
-async function fetchYahoo(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
-  const res = await fetch(url, { headers:{ Accept:"application/json" } });
-  if (!res.ok) throw new Error("Yahoo fail");
-  const json = await res.json();
+function parseYahooChart(json) {
   const meta = json?.chart?.result?.[0]?.meta;
   if (!meta) throw new Error("No data");
   const price = meta.regularMarketPrice ?? meta.previousClose;
@@ -399,6 +395,25 @@ async function fetchYahoo(symbol) {
   return { price, change:+(price-prev).toFixed(2), changeP:+(((price-prev)/prev)*100).toFixed(2),
            high:meta.regularMarketDayHigh, low:meta.regularMarketDayLow,
            open:meta.regularMarketOpen, volume:meta.regularMarketVolume, source:"Yahoo Finance" };
+}
+
+async function fetchYahoo(symbol) {
+  // 1) Our own backend proxy — no CORS, works on the deployed site, no key needed
+  try {
+    const res = await fetch(`/api/market-data?type=quote&symbol=${encodeURIComponent(symbol)}`,
+      { signal: AbortSignal.timeout(6000) });
+    const ct = res.headers.get("content-type") || "";
+    if (res.ok && ct.includes("application/json")) {
+      const json = await res.json();
+      return parseYahooChart(json);
+    }
+  } catch(_) {}
+  // 2) Direct Yahoo — works in some environments without CORS enforcement
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
+  const res = await fetch(url, { headers:{ Accept:"application/json" }, signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error("Yahoo fail");
+  const json = await res.json();
+  return parseYahooChart(json);
 }
 
 // Live options chain from Yahoo Finance
@@ -612,14 +627,26 @@ function validateTickerLocal(symbol) {
 }
 
 async function tryFetchLiveChain(sym, qs) {
-  // Try FMP first (best CORS support + most complete options data)
+  // 1) Our own backend proxy to Yahoo — no CORS, no key needed, real live data
+  try {
+    const dateParam = qs ? `&${qs.slice(1)}` : "";
+    const res = await fetch(`/api/market-data?type=options&symbol=${encodeURIComponent(sym)}${dateParam}`,
+      { signal: AbortSignal.timeout(8000) });
+    const ct = res.headers.get("content-type") || "";
+    if (res.ok && ct.includes("application/json")) {
+      const d = await res.json();
+      const r = d?.optionChain?.result?.[0];
+      if (r?.options?.[0]?.calls?.length) return { ...r, isSynthetic:false, source:"Yahoo Finance (live)" };
+    }
+  } catch(_){}
+  // 2) FMP (only useful on paid plans — options endpoint is not in the free tier)
   if (API_KEYS.fmp) {
     try {
       const expiry = qs ? new URLSearchParams(qs.replace("?","")).get("date") : null;
       return await fetchFMPOptions(sym, expiry);
     } catch(e) { console.warn("FMP options failed:", e.message); }
   }
-  // Try Yahoo Finance direct (works on some networks)
+  // 3) Yahoo Finance direct from browser (works in some environments)
   const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/options/${sym}${qs}`;
   try {
     const res = await fetch(yahooUrl, {
@@ -632,7 +659,7 @@ async function tryFetchLiveChain(sym, qs) {
       if (r?.options?.[0]?.calls?.length) return { ...r, isSynthetic:false, source:"Yahoo" };
     }
   } catch(_){}
-  // CORS proxies as last resort
+  // 4) Public CORS proxies as last resort
   for (const proxy of [
     `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
@@ -895,8 +922,7 @@ function LiveChainView() {
     setError("synthetic");
     setLoading(false);
 
-    // ── Step 3: Fetch real data from FMP / Yahoo in background ───────────
-    if (!API_KEYS.fmp) { setError("no_fmp_key"); return; }
+    // ── Step 3: Fetch real data — our backend proxy needs no key ─────────
     setError("fetching");
     try {
       const live = await tryFetchLiveChain(cleanSym, date ? `?date=${date}` : "");
@@ -1076,7 +1102,7 @@ function LiveChainView() {
 
       {!loading&&error==="synthetic"&&<div style={{background:"#0c1a08",border:"1px solid #166534",borderRadius:8,padding:"8px 12px",color:"#86efac",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
         <span>🔬</span>
-        <span><strong>Black-Scholes model data</strong> — Add your FMP key for real-time live chain. Model Greeks, premiums and strikes are mathematically accurate.</span>
+        <span><strong>Black-Scholes model data</strong> — live sources are temporarily unreachable from this environment. On the deployed site this upgrades to live Yahoo Finance data automatically. Model Greeks, premiums and strikes are mathematically accurate.</span>
       </div>}
 
       {!loading&&chainData?.source&&!chainData.isSynthetic&&<div style={{background:"#052e16",border:"1px solid #16a34a",borderRadius:8,padding:"8px 12px",color:"#4ade80",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
@@ -1971,7 +1997,7 @@ export default function App() {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:mktOpen?"#22c55e":"#ef4444",boxShadow:mktOpen?"0 0 5px #22c55e":"none"}}/><span style={{fontSize:11,color:"#64748b"}}>{mktOpen?"Open":"Closed"}</span></div>
-            <button onClick={()=>setShowSettings(true)} style={{background:"#1e293b",border:`1px solid ${keysConfigured>0?"#22c55e44":"#ca8a0444"}`,color:keysConfigured>0?"#22c55e":"#f59e0b",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>🔑 {keysConfigured}/3</button>
+            <button onClick={()=>setShowSettings(true)} style={{background:"#1e293b",border:`1px solid ${keysConfigured>0?"#22c55e44":"#ca8a0444"}`,color:keysConfigured>0?"#22c55e":"#f59e0b",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>🔑 {keysConfigured}/4</button>
           </div>
         </div>
       </div>
