@@ -22,8 +22,11 @@ export default async function handler(req, res) {
     path = `/v8/finance/chart/${sym}?interval=1d&range=2d`;
   } else if (type === "options") {
     path = `/v7/finance/options/${sym}${date ? `?date=${encodeURIComponent(date)}` : ""}`;
+  } else if (type === "news") {
+    // Live, timestamped news headlines for a ticker — used to ground AI reports in real events
+    path = `/v1/finance/search?q=${sym}&quotesCount=0&newsCount=10`;
   } else {
-    return res.status(400).json({ error: "bad_request", message: "type must be 'quote' or 'options'" });
+    return res.status(400).json({ error: "bad_request", message: "type must be 'quote', 'options' or 'news'" });
   }
 
   // Cache successful responses at Vercel's edge for 60s — keeps us light on Yahoo

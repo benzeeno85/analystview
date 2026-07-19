@@ -1509,6 +1509,27 @@ function AnalystReportModal({subject, onClose}) {
   // Phase 1 — search the web for current, real information about this ticker
   const researchCurrentInfo = async (ticker, name, assetType) => {
     const q = assetType==="option" ? ticker.split(" ")[0] : ticker; // search the underlying, not the contract string
+
+    // ── Source 1: REAL live news headlines from Yahoo Finance via our own proxy ──
+    // Deterministic, timestamped, free — genuinely live facts, not model speculation.
+    try {
+      const res = await fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(q)}`,
+        { signal: AbortSignal.timeout(8000) });
+      const ct = res.headers.get("content-type")||"";
+      if (res.ok && ct.includes("application/json")) {
+        const d = await res.json();
+        const items = (d?.news||[]).filter(n=>n.title).slice(0,6);
+        if (items.length >= 2) {
+          const bullets = items.map(n=>{
+            const when = n.providerPublishTime ? new Date(n.providerPublishTime*1000).toISOString().slice(0,10) : "recent";
+            return `- [${when}] ${n.title}${n.publisher?` (${n.publisher})`:""}`;
+          }).join("\n");
+          return { bullets, grounded: true };
+        }
+      }
+    } catch(_) {}
+
+    // ── Source 2 (fallback): AI web search via backend ───────────────────────
     const prompt = `Search the web for the most recent analyst ratings, price target changes, earnings news, and market-moving headlines about ${q} (${name}). Return ONLY 4-6 short bullet points, each under 18 words, most recent/relevant first, no preamble, format:\n- fact one\n- fact two`;
     try {
       const res = await fetch("/api/generate-report", {
@@ -1556,7 +1577,7 @@ function AnalystReportModal({subject, onClose}) {
     const baseTarget = avgTarget ? Math.round(avgTarget) : (price?Math.round(price):null);
     const bullTarget = avgTarget ? Math.round(avgTarget*1.18) : (price?Math.round(price*1.28):null);
     const priceLine = assetType==="option" ? `Premium $${price?.toFixed(2)}` : `Price $${price?.toFixed(2)||"N/A"}`;
-    const researchLine = research.bullets ? `\n\nRecent real findings from live web search (use these specific facts in your evidence):\n${research.bullets}` : "";
+    const researchLine = research.bullets ? `\n\nREAL, CURRENT market headlines and findings (each dated — treat these as factual, cite them in your evidence, do not contradict them):\n${research.bullets}` : "";
 
     const prompt = `You are a senior ${assetType==="option"?"options":assetType==="future"?"commodities":assetType==="index"?"macro":"equity"} research analyst. Write a CONCISE conviction-based report for ${ticker} (${name}), category: ${category}.
 
@@ -1628,7 +1649,7 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
               <span style={{fontSize:10,background:"#1e293b",color:"#94a3b8",padding:"2px 7px",borderRadius:4}}>{subject.category}</span>
               <span style={{fontSize:10,background:"#0c2040",color:"#60a5fa",padding:"2px 7px",borderRadius:4,fontWeight:700}}>AI ANALYST REPORT</span>
               {!loading&&report&&(grounded
-                ? <span style={{fontSize:10,background:"#052e16",color:"#4ade80",padding:"2px 7px",borderRadius:4,fontWeight:700}}>🔍 LIVE WEB SEARCH</span>
+                ? <span style={{fontSize:10,background:"#052e16",color:"#4ade80",padding:"2px 7px",borderRadius:4,fontWeight:700}}>🔍 LIVE NEWS & DATA</span>
                 : <span style={{fontSize:10,background:"#1c1008",color:"#fcd34d",padding:"2px 7px",borderRadius:4,fontWeight:700}}>🧠 MODEL REASONING</span>)}
             </div>
             <div style={{color:"#64748b",fontSize:11}}>{subject.name} · ${subject.price?.toFixed(2)} · {subject.consensus}</div>
@@ -1726,7 +1747,7 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
           </div>
 
           <div style={{fontSize:10,color:"#374151",textAlign:"center",lineHeight:1.6}}>
-            {grounded?"🔍 This report incorporated live web search results for current news and analyst activity.":"🧠 Live web search was unavailable for this report — based on model reasoning and the data shown above."}<br/>
+            {grounded?"🔍 This report is grounded in real, timestamped market headlines and live price data fetched at generation time.":"🧠 Live headlines were unavailable for this report — based on the live price data shown above plus model reasoning."}<br/>
             AI-generated for informational purposes only · Not financial advice · Always conduct your own research
           </div>
         </div>}
