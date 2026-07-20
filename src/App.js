@@ -221,29 +221,51 @@ const STOCKS = {
 };
 
 const INDICES = [
-  { symbol:"SPX",  name:"S&P 500",        region:"🇺🇸", ySymbol:"^GSPC"   },
-  { symbol:"NDX",  name:"NASDAQ 100",     region:"🇺🇸", ySymbol:"^NDX"    },
-  { symbol:"DJI",  name:"Dow Jones",      region:"🇺🇸", ySymbol:"^DJI"    },
-  { symbol:"RUT",  name:"Russell 2000",   region:"🇺🇸", ySymbol:"^RUT"    },
-  { symbol:"VIX",  name:"CBOE Volatility",region:"🇺🇸", ySymbol:"^VIX"    },
-  { symbol:"TXSC", name:"TSX Composite",  region:"🇨🇦", ySymbol:"^GSPTSE" },
-  { symbol:"TSX60",name:"TSX 60",         region:"🇨🇦", ySymbol:"^TX60"   },
-  { symbol:"DXY",  name:"US Dollar Index",region:"🌐",  ySymbol:"DX-Y.NYB"},
+  { symbol:"SPX",   name:"S&P 500",          region:"🇺🇸", ySymbol:"^GSPC"    },
+  { symbol:"NDX",   name:"NASDAQ 100",       region:"🇺🇸", ySymbol:"^NDX"     },
+  { symbol:"COMP",  name:"NASDAQ Composite", region:"🇺🇸", ySymbol:"^IXIC"    },
+  { symbol:"DJI",   name:"Dow Jones",        region:"🇺🇸", ySymbol:"^DJI"     },
+  { symbol:"RUT",   name:"Russell 2000",     region:"🇺🇸", ySymbol:"^RUT"     },
+  { symbol:"VIX",   name:"CBOE Volatility",  region:"🇺🇸", ySymbol:"^VIX"     },
+  { symbol:"TXSC",  name:"TSX Composite",    region:"🇨🇦", ySymbol:"^GSPTSE"  },
+  { symbol:"TSX60", name:"TSX 60",           region:"🇨🇦", ySymbol:"^TX60"    },
+  { symbol:"FTSE",  name:"FTSE 100",         region:"🇬🇧", ySymbol:"^FTSE"    },
+  { symbol:"DAX",   name:"DAX 40",           region:"🇩🇪", ySymbol:"^GDAXI"   },
+  { symbol:"CAC",   name:"CAC 40",           region:"🇫🇷", ySymbol:"^FCHI"    },
+  { symbol:"SX5E",  name:"Euro Stoxx 50",    region:"🇪🇺", ySymbol:"^STOXX50E"},
+  { symbol:"N225",  name:"Nikkei 225",       region:"🇯🇵", ySymbol:"^N225"    },
+  { symbol:"HSI",   name:"Hang Seng",        region:"🇭🇰", ySymbol:"^HSI"     },
+  { symbol:"KOSPI", name:"KOSPI",            region:"🇰🇷", ySymbol:"^KS11"    },
+  { symbol:"SENSEX",name:"BSE Sensex",       region:"🇮🇳", ySymbol:"^BSESN"   },
+  { symbol:"ASX200",name:"ASX 200",          region:"🇦🇺", ySymbol:"^AXJO"    },
+  { symbol:"DXY",   name:"US Dollar Index",  region:"🌐",  ySymbol:"DX-Y.NYB" },
 ];
 
 const FUTURES = [
-  { symbol:"GC=F", name:"Gold",            unit:"$/oz",   category:"Metals"        },
-  { symbol:"SI=F", name:"Silver",          unit:"$/oz",   category:"Metals"        },
-  { symbol:"HG=F", name:"Copper",          unit:"$/lb",   category:"Metals"        },
-  { symbol:"CL=F", name:"Crude Oil (WTI)", unit:"$/bbl",  category:"Energy"        },
-  { symbol:"BZ=F", name:"Brent Crude",     unit:"$/bbl",  category:"Energy"        },
-  { symbol:"NG=F", name:"Natural Gas",     unit:"$/MMBtu",category:"Energy"        },
-  { symbol:"ES=F", name:"S&P 500 E-mini",  unit:"pts",    category:"Index Futures" },
-  { symbol:"NQ=F", name:"NASDAQ E-mini",   unit:"pts",    category:"Index Futures" },
-  { symbol:"YM=F", name:"Dow E-mini",      unit:"pts",    category:"Index Futures" },
-  { symbol:"ZN=F", name:"10-Yr T-Note",    unit:"pts",    category:"Bonds"         },
-  { symbol:"ZC=F", name:"Corn",            unit:"¢/bu",   category:"Agriculture"   },
-  { symbol:"ZW=F", name:"Wheat",           unit:"¢/bu",   category:"Agriculture"   },
+  { symbol:"GC=F",  name:"Gold",            unit:"$/oz",   category:"Metals"        },
+  { symbol:"SI=F",  name:"Silver",          unit:"$/oz",   category:"Metals"        },
+  { symbol:"HG=F",  name:"Copper",          unit:"$/lb",   category:"Metals"        },
+  { symbol:"PL=F",  name:"Platinum",        unit:"$/oz",   category:"Metals"        },
+  { symbol:"PA=F",  name:"Palladium",       unit:"$/oz",   category:"Metals"        },
+  { symbol:"CL=F",  name:"Crude Oil (WTI)", unit:"$/bbl",  category:"Energy"        },
+  { symbol:"BZ=F",  name:"Brent Crude",     unit:"$/bbl",  category:"Energy"        },
+  { symbol:"NG=F",  name:"Natural Gas",     unit:"$/MMBtu",category:"Energy"        },
+  { symbol:"RB=F",  name:"RBOB Gasoline",   unit:"$/gal",  category:"Energy"        },
+  { symbol:"HO=F",  name:"Heating Oil",     unit:"$/gal",  category:"Energy"        },
+  { symbol:"ES=F",  name:"S&P 500 E-mini",  unit:"pts",    category:"Index Futures" },
+  { symbol:"NQ=F",  name:"NASDAQ E-mini",   unit:"pts",    category:"Index Futures" },
+  { symbol:"YM=F",  name:"Dow E-mini",      unit:"pts",    category:"Index Futures" },
+  { symbol:"RTY=F", name:"Russell E-mini",  unit:"pts",    category:"Index Futures" },
+  { symbol:"ZN=F",  name:"10-Yr T-Note",    unit:"pts",    category:"Bonds"         },
+  { symbol:"ZB=F",  name:"30-Yr T-Bond",    unit:"pts",    category:"Bonds"         },
+  { symbol:"ZC=F",  name:"Corn",            unit:"¢/bu",   category:"Agriculture"   },
+  { symbol:"ZW=F",  name:"Wheat",           unit:"¢/bu",   category:"Agriculture"   },
+  { symbol:"ZS=F",  name:"Soybeans",        unit:"¢/bu",   category:"Agriculture"   },
+  { symbol:"KC=F",  name:"Coffee",          unit:"¢/lb",   category:"Agriculture"   },
+  { symbol:"SB=F",  name:"Sugar #11",       unit:"¢/lb",   category:"Agriculture"   },
+  { symbol:"CC=F",  name:"Cocoa",           unit:"$/t",    category:"Agriculture"   },
+  { symbol:"BTC=F", name:"Bitcoin (CME)",   unit:"$",      category:"Crypto"        },
+  { symbol:"ETH=F", name:"Ether (CME)",     unit:"$",      category:"Crypto"        },
 ];
 
 // Generates real upcoming Friday expiry dates (weekly + monthly) relative to TODAY.
@@ -373,17 +395,30 @@ const SEED_PRICES = {
 };
 const SEED_INDEX = {
   SPX:{price:4850.20,change:12.40,changeP:0.26},NDX:{price:16920.80,change:45.20,changeP:0.27},
+  COMP:{price:15310.40,change:42.10,changeP:0.28},
   DJI:{price:38120.60,change:-85.40,changeP:-0.22},RUT:{price:2024.10,change:8.30,changeP:0.41},
   VIX:{price:14.82,change:-0.34,changeP:-2.24},TXSC:{price:21842.30,change:64.10,changeP:0.29},
   TSX60:{price:1324.80,change:3.90,changeP:0.29},DXY:{price:103.84,change:0.22,changeP:0.21},
+  FTSE:{price:7682.40,change:18.20,changeP:0.24},DAX:{price:16942.80,change:52.40,changeP:0.31},
+  CAC:{price:7524.60,change:-12.80,changeP:-0.17},SX5E:{price:4482.20,change:14.60,changeP:0.33},
+  N225:{price:35820.40,change:182.60,changeP:0.51},HSI:{price:16428.80,change:-84.20,changeP:-0.51},
+  KOSPI:{price:2498.40,change:12.20,changeP:0.49},SENSEX:{price:71842.60,change:284.40,changeP:0.40},
+  ASX200:{price:7524.80,change:22.40,changeP:0.30},
 };
 const SEED_FUTURES = {
   "GC=F":{price:2028.40,change:8.20,changeP:0.41},"SI=F":{price:23.14,change:0.18,changeP:0.78},
-  "HG=F":{price:3.84,change:-0.02,changeP:-0.52},"CL=F":{price:73.82,change:-0.64,changeP:-0.86},
+  "HG=F":{price:3.84,change:-0.02,changeP:-0.52},"PL=F":{price:912.40,change:4.80,changeP:0.53},
+  "PA=F":{price:982.60,change:-6.20,changeP:-0.63},
+  "CL=F":{price:73.82,change:-0.64,changeP:-0.86},
   "BZ=F":{price:78.94,change:-0.58,changeP:-0.73},"NG=F":{price:2.64,change:0.04,changeP:1.54},
+  "RB=F":{price:2.18,change:0.01,changeP:0.46},"HO=F":{price:2.62,change:-0.02,changeP:-0.76},
   "ES=F":{price:4862.50,change:14.25,changeP:0.29},"NQ=F":{price:16948.00,change:48.75,changeP:0.29},
-  "YM=F":{price:38210.00,change:-62.00,changeP:-0.16},"ZN=F":{price:110.28,change:-0.14,changeP:-0.13},
+  "YM=F":{price:38210.00,change:-62.00,changeP:-0.16},"RTY=F":{price:2032.40,change:8.60,changeP:0.42},
+  "ZN=F":{price:110.28,change:-0.14,changeP:-0.13},"ZB=F":{price:118.44,change:-0.28,changeP:-0.24},
   "ZC=F":{price:482.50,change:-3.25,changeP:-0.67},"ZW=F":{price:598.75,change:4.50,changeP:0.76},
+  "ZS=F":{price:1204.25,change:6.50,changeP:0.54},"KC=F":{price:242.80,change:3.40,changeP:1.42},
+  "SB=F":{price:22.84,change:-0.18,changeP:-0.78},"CC=F":{price:4820.00,change:64.00,changeP:1.35},
+  "BTC=F":{price:98420.00,change:1240.00,changeP:1.28},"ETH=F":{price:3642.00,change:48.00,changeP:1.34},
 };
 
 // ─── DATA PROVIDERS ──────────────────────────────────────────────────────────
@@ -626,6 +661,50 @@ function validateTickerLocal(symbol) {
   return allTickers.includes(sym) || allTickers.includes(sym+".TO");
 }
 
+// Alpha Vantage HISTORICAL_OPTIONS — REAL exchange options chain with REAL Greeks.
+// Free tier: previous session's close, 25 requests/day. Browser-friendly (CORS OK).
+async function fetchAlphaVantageChain(sym, dateUnix) {
+  if (!API_KEYS.alphavantage) return null;
+  const res = await fetch(
+    `https://www.alphavantage.co/query?function=HISTORICAL_OPTIONS&symbol=${encodeURIComponent(sym)}&apikey=${API_KEYS.alphavantage}`,
+    { signal: AbortSignal.timeout(12000) }
+  );
+  if (!res.ok) return null;
+  const d = await res.json();
+  const rows = d?.data;
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const expiries = [...new Set(rows.map(r => r.expiration))].sort();
+  const wanted = dateUnix ? new Date(dateUnix * 1000).toISOString().slice(0, 10) : null;
+  const expiration = (wanted && expiries.includes(wanted)) ? wanted : expiries[0];
+  const sel = rows.filter(r => r.expiration === expiration);
+  // Spot price: live quote if possible, else infer from the contract closest to delta 0.5
+  let spot = null;
+  try { spot = (await fetchQuote(sym))?.price ?? null; } catch (_) {}
+  if (!spot) {
+    const atm = sel.filter(r => r.type === "call")
+      .sort((a, b) => Math.abs(parseFloat(a.delta) - 0.5) - Math.abs(parseFloat(b.delta) - 0.5))[0];
+    spot = atm ? parseFloat(atm.strike) : parseFloat(sel[0].strike);
+  }
+  const toC = r => ({
+    contractSymbol: r.contractID, strike: +r.strike,
+    lastPrice: +r.last || +r.mark || 0, bid: +r.bid || 0, ask: +r.ask || 0,
+    volume: +r.volume || 0, openInterest: +r.open_interest || 0,
+    impliedVolatility: +r.implied_volatility || 0,
+    delta: +r.delta || 0, gamma: +r.gamma || 0, theta: +r.theta || 0, vega: +r.vega || 0,
+    inTheMoney: r.type === "call" ? +r.strike < spot : +r.strike > spot,
+    expiration: Math.floor(new Date(r.expiration + "T16:00:00Z").getTime() / 1000),
+  });
+  const calls = sel.filter(r => r.type === "call").map(toC).sort((a, b) => a.strike - b.strike);
+  const puts  = sel.filter(r => r.type === "put").map(toC).sort((a, b) => a.strike - b.strike);
+  if (!calls.length && !puts.length) return null;
+  return {
+    quote: { regularMarketPrice: spot, symbol: sym },
+    expirationDates: expiries.map(e => Math.floor(new Date(e + "T16:00:00Z").getTime() / 1000)),
+    options: [{ expirationDate: Math.floor(new Date(expiration + "T16:00:00Z").getTime() / 1000), calls, puts }],
+    isSynthetic: false, source: "Alpha Vantage (prev close)",
+  };
+}
+
 async function tryFetchLiveChain(sym, qs) {
   // 1) Our own backend proxy to Yahoo — no CORS, no key needed, real live data
   try {
@@ -639,7 +718,15 @@ async function tryFetchLiveChain(sym, qs) {
       if (r?.options?.[0]?.calls?.length) return { ...r, isSynthetic:false, source:"Yahoo Finance (live)" };
     }
   } catch(_){}
-  // 2) FMP (only useful on paid plans — options endpoint is not in the free tier)
+  // 2) Alpha Vantage — REAL exchange chain with REAL Greeks (previous close, 25 free calls/day)
+  if (API_KEYS.alphavantage) {
+    try {
+      const dateUnix = qs ? parseInt(new URLSearchParams(qs.slice(1)).get("date"), 10) : null;
+      const av = await fetchAlphaVantageChain(sym, dateUnix);
+      if (av) return av;
+    } catch(_){}
+  }
+  // 3) FMP (only useful on paid plans — options endpoint is not in the free tier)
   if (API_KEYS.fmp) {
     try {
       const expiry = qs ? new URLSearchParams(qs.replace("?","")).get("date") : null;
@@ -763,7 +850,7 @@ function consensusFromFinnhub(d) {
 const BADGE={"Strong Buy":{bg:"#16a34a"},"Buy":{bg:"#15803d"},"Hold":{bg:"#ca8a04"},"Sell":{bg:"#dc2626"},"Strong Sell":{bg:"#991b1b"},"Bullish":{bg:"#16a34a"},"Neutral":{bg:"#ca8a04"},"Bearish":{bg:"#dc2626"},"CALL":{bg:"#1d4ed8"},"PUT":{bg:"#9333ea"}};
 const BAR={"Strong Buy":"#22c55e","Buy":"#4ade80","Hold":"#facc15","Sell":"#f87171","Strong Sell":"#ef4444"};
 const SRC={"Finnhub":"#00d4aa","Yahoo Finance":"#8b5cf6","Seed Data":"#475569"};
-const CAT_COLOR={"Metals":"#f59e0b","Energy":"#ef4444","Index Futures":"#3b82f6","Bonds":"#22c55e","Agriculture":"#84cc16"};
+const CAT_COLOR={"Metals":"#f59e0b","Energy":"#ef4444","Index Futures":"#3b82f6","Bonds":"#22c55e","Agriculture":"#84cc16","Crypto":"#a855f7"};
 
 function Badge({label,size="sm"}) {
   const c=BADGE[label]||{bg:"#475569"};
@@ -1102,7 +1189,7 @@ function LiveChainView() {
 
       {!loading&&error==="synthetic"&&<div style={{background:"#0c1a08",border:"1px solid #166534",borderRadius:8,padding:"8px 12px",color:"#86efac",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
         <span>🔬</span>
-        <span><strong>Black-Scholes model data</strong> — live sources are temporarily unreachable from this environment. On the deployed site this upgrades to live Yahoo Finance data automatically. Model Greeks, premiums and strikes are mathematically accurate.</span>
+        <span><strong>Black-Scholes model data</strong> — no live options source responded. On the deployed site this upgrades automatically to Yahoo Finance (live) or Alpha Vantage (real previous-close chain with real Greeks, using your existing key).</span>
       </div>}
 
       {!loading&&chainData?.source&&!chainData.isSynthetic&&<div style={{background:"#052e16",border:"1px solid #16a34a",borderRadius:8,padding:"8px 12px",color:"#4ade80",fontSize:11,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
