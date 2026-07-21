@@ -1401,39 +1401,206 @@ function ScreenerCard({opt,onClick,selected}) {
 }
 
 // ─── SCREENER DETAIL ──────────────────────────────────────────────────────────
+// ─── CONVICTION-GRADE VISUAL COMPONENTS ───────────────────────────────────────
+function ConvictionGauge({counts,total}) {
+  const w={"Strong Buy":100,"Buy":75,"Hold":50,"Sell":25,"Strong Sell":0};
+  const score = total ? Object.entries(counts).reduce((a,[k,v])=>a+(w[k]??50)*v,0)/total : 50;
+  const color = score>=65?"#22c55e":score>=45?"#f59e0b":"#ef4444";
+  const label = score>=80?"Very Strong Conviction":score>=65?"Strong Conviction":score>=45?"Mixed / Moderate":score>=25?"Weak Conviction":"Very Weak Conviction";
+  return (
+    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <span style={{fontSize:11,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>Desk Conviction Score</span>
+        <span style={{fontSize:16,fontWeight:900,color}}>{score.toFixed(0)}/100</span>
+      </div>
+      <div style={{position:"relative",height:10,background:"linear-gradient(90deg,#ef4444,#f59e0b 50%,#22c55e)",borderRadius:5,overflow:"visible"}}>
+        <div style={{position:"absolute",left:`${score}%`,top:-3,transform:"translateX(-50%)",width:16,height:16,borderRadius:"50%",background:"#fff",border:`3px solid ${color}`,boxShadow:"0 1px 4px #000a"}}/>
+      </div>
+      <div style={{fontSize:11,color,fontWeight:700,marginTop:8,textAlign:"center"}}>{label}</div>
+    </div>
+  );
+}
+
+function IVMeter({iv}) {
+  const pct = Math.min(100,(iv/120)*100);
+  const zone = iv<20?{l:"Low",c:"#22c55e"}:iv<40?{l:"Normal",c:"#3b82f6"}:iv<70?{l:"Elevated",c:"#f59e0b"}:{l:"Extreme",c:"#ef4444"};
+  return (
+    <div style={{background:"#0f172a",borderRadius:7,padding:"9px 10px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#64748b",marginBottom:4}}>
+        <span>Implied Volatility</span><span style={{color:zone.c,fontWeight:700}}>{zone.l}</span>
+      </div>
+      <div style={{position:"relative",height:6,borderRadius:3,background:"linear-gradient(90deg,#22c55e,#3b82f6 33%,#f59e0b 66%,#ef4444)"}}>
+        <div style={{position:"absolute",left:`${pct}%`,top:-2,transform:"translateX(-50%)",width:10,height:10,borderRadius:"50%",background:"#fff",border:`2px solid ${zone.c}`}}/>
+      </div>
+      <div style={{fontSize:12,fontWeight:800,color:"#e2e8f0",marginTop:6}}>{iv?.toFixed(1)}%</div>
+    </div>
+  );
+}
+
+function ProbabilityBadge({delta}) {
+  const prob = Math.min(99,Math.max(1,Math.abs(delta||0)*100));
+  const color = prob>=60?"#22c55e":prob>=40?"#f59e0b":"#ef4444";
+  return (
+    <div style={{background:"#0f172a",borderRadius:7,padding:"9px 10px",textAlign:"center"}}>
+      <div style={{fontSize:9,color:"#64748b",marginBottom:4}}>Est. Probability ITM</div>
+      <div style={{fontSize:20,fontWeight:900,color}}>{prob.toFixed(0)}%</div>
+      <div style={{fontSize:8,color:"#374151",marginTop:2}}>delta-approximation</div>
+    </div>
+  );
+}
+
+function DistanceRuler({spot,strike,breakeven,isCall}) {
+  if(!spot||!strike) return null;
+  const vals=[spot,strike,parseFloat(breakeven)].filter(v=>isFinite(v));
+  const min=Math.min(...vals)*0.94, max=Math.max(...vals)*1.06, span=max-min||1;
+  const pos=v=>((v-min)/span)*100;
+  const beX=pos(parseFloat(breakeven));
+  return (
+    <div style={{background:"#0f172a",borderRadius:7,padding:"14px 12px 22px"}}>
+      <div style={{fontSize:9,color:"#64748b",marginBottom:10}}>Spot vs Strike vs Breakeven</div>
+      <div style={{position:"relative",height:6,borderRadius:3,background:"#1e293b"}}>
+        <div style={{position:"absolute",left:0,width:`${beX}%`,height:"100%",borderRadius:"3px 0 0 3px",background:isCall?"#7f1d1d55":"#14532d55"}}/>
+        <div style={{position:"absolute",left:`${beX}%`,right:0,height:"100%",borderRadius:"0 3px 3px 0",background:isCall?"#14532d55":"#7f1d1d55"}}/>
+        {[["Spot",spot,"#3b82f6"],["Strike",strike,"#a855f7"],["B/E",parseFloat(breakeven),"#f59e0b"]].map(([lbl,v,c])=>(
+          <div key={lbl} style={{position:"absolute",left:`${pos(v)}%`,top:-5,transform:"translateX(-50%)"}}>
+            <div style={{width:14,height:14,borderRadius:"50%",background:c,border:"2px solid #0f172a"}}/>
+            <div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:8,color:c,fontWeight:700}}>{lbl}</div>
+            <div style={{position:"absolute",top:26,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:8,color:"#64748b"}}>${v.toFixed(0)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VolOIBar({vol,oi}) {
+  const max=Math.max(vol||0,oi||0,1);
+  return (
+    <div style={{background:"#0f172a",borderRadius:7,padding:"9px 10px"}}>
+      <div style={{fontSize:9,color:"#64748b",marginBottom:6}}>Volume vs Open Interest</div>
+      {[["Volume (today)",vol,"#3b82f6"],["Open Interest",oi,"#a855f7"]].map(([lbl,v,c])=>(
+        <div key={lbl} style={{marginBottom:5}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#94a3b8",marginBottom:2}}>
+            <span>{lbl}</span><span style={{color:c,fontWeight:700}}>{(v||0).toLocaleString()}</span>
+          </div>
+          <div style={{height:5,borderRadius:3,background:"#1e293b",overflow:"hidden"}}>
+            <div style={{width:`${((v||0)/max)*100}%`,height:"100%",background:c,borderRadius:3}}/>
+          </div>
+        </div>
+      ))}
+      <div style={{fontSize:8,color:"#374151",marginTop:2}}>
+        {(oi||0)>10000?"High open interest — liquid contract":(oi||0)>1000?"Moderate open interest":"Low open interest — wider spreads likely"}
+      </div>
+    </div>
+  );
+}
+
 function ScreenerDetail({opt,onClose}) {
   const [showReport,setShowReport]=useState(false);
+  const [live,setLive]=useState(null);          // live-refreshed contract data, if found
+  const [liveStatus,setLiveStatus]=useState("loading"); // loading | live | model
+  const [lastUpdated,setLastUpdated]=useState(null);
+
+  const refreshLive = useCallback(async()=>{
+    setLiveStatus("loading");
+    try {
+      const q = await fetchQuote(opt.underlying).catch(()=>null);
+      const chain = await tryFetchLiveChain(opt.underlying, "").catch(()=>null);
+      const spot = q?.price || opt.spotPrice;
+      let matched = null;
+      if (chain?.options?.[0]) {
+        const arr = opt.type==="CALL" ? chain.options[0].calls : chain.options[0].puts;
+        if (arr?.length) {
+          matched = arr.reduce((best,c)=> Math.abs(c.strike-opt.strike)<Math.abs((best?.strike??Infinity)-opt.strike)?c:best, null);
+        }
+      }
+      if (matched && spot) {
+        const daysToExp = chain.options[0].expirationDate
+          ? Math.max(1,Math.ceil((chain.options[0].expirationDate*1000-Date.now())/(1000*60*60*24))) : 30;
+        const T = daysToExp/365;
+        const iv = matched.impliedVolatility>1 ? matched.impliedVolatility/100 : (matched.impliedVolatility||0.3);
+        const bs = blackScholesPrice(spot, matched.strike||opt.strike, T, iv, opt.type==="CALL");
+        setLive({
+          spotPrice: spot, strike: matched.strike||opt.strike,
+          premium: matched.lastPrice>0?matched.lastPrice:((matched.bid+(matched.ask||matched.bid))/2)||opt.premium,
+          bid: matched.bid, ask: matched.ask,
+          iv: +(iv*100).toFixed(1),
+          delta: bs?+bs.delta.toFixed(4):opt.delta, gamma: bs?+bs.gamma.toFixed(4):opt.gamma,
+          theta: bs?+bs.theta.toFixed(4):opt.theta, vega: bs?+bs.vega.toFixed(4):opt.vega,
+          oi: matched.openInterest||0, vol: matched.volume||0,
+          daysToExp,
+        });
+        setLiveStatus("live");
+      } else if (spot) {
+        // No exact contract match, but we do have a live spot — reprice the existing strike live
+        const daysToExp=Math.max(1,Math.ceil((new Date(opt.expiry)-new Date())/(1000*60*60*24)));
+        const T=daysToExp/365;
+        const bs=blackScholesPrice(spot,opt.strike,T,(opt.iv||30)/100,opt.type==="CALL");
+        setLive({
+          spotPrice:spot, strike:opt.strike,
+          premium: bs?+bs.price.toFixed(2):opt.premium,
+          bid:null, ask:null, iv:opt.iv,
+          delta:bs?+bs.delta.toFixed(4):opt.delta, gamma:bs?+bs.gamma.toFixed(4):opt.gamma,
+          theta:bs?+bs.theta.toFixed(4):opt.theta, vega:bs?+bs.vega.toFixed(4):opt.vega,
+          oi:opt.oi||0, vol:opt.vol||0, daysToExp,
+        });
+        setLiveStatus("live");
+      } else {
+        setLiveStatus("model");
+      }
+    } catch(_) { setLiveStatus("model"); }
+    setLastUpdated(new Date());
+  },[opt]);
+
+  useEffect(()=>{ refreshLive(); },[refreshLive]);
+
+  const d = live || opt; // use live data when available, else fall back to the passed-in (screener/model) data
   const key=`${opt.underlying}-${opt.strike}-${opt.type}-${opt.expiry}`;
   const ratings=seedOptionsRatings(key);
   const consensus=calcConsensus(ratings);
   const counts={}; CONSENSUS_ORDER.forEach(r=>counts[r]=0); ratings.forEach(r=>{ if(counts[r.rating]!==undefined) counts[r.rating]++; });
   const isCall=opt.type==="CALL";
-  const daysToExp=Math.max(0,Math.ceil((new Date(opt.expiry)-new Date())/(1000*60*60*24)));
-  const contractCost=(opt.premium*100).toFixed(2);
-  const breakeven=isCall?(opt.strike+opt.premium).toFixed(2):(opt.strike-opt.premium).toFixed(2);
-  const pctBE=opt.spotPrice?Math.abs((parseFloat(breakeven)-opt.spotPrice)/opt.spotPrice*100).toFixed(1):null;
+  const daysToExp=live?.daysToExp ?? Math.max(0,Math.ceil((new Date(opt.expiry)-new Date())/(1000*60*60*24)));
+  const contractCost=(d.premium*100).toFixed(2);
+  const breakeven=isCall?(d.strike+d.premium).toFixed(2):(d.strike-d.premium).toFixed(2);
+  const pctBE=d.spotPrice?Math.abs((parseFloat(breakeven)-d.spotPrice)/d.spotPrice*100).toFixed(1):null;
   const riskColor=RISK_COLORS[opt.risk]||"#64748b";
+
   return (
     <div style={{background:"#0f172a",border:`1.5px solid ${isCall?"#1e3a5f":"#2e1a5f"}`,borderRadius:12,padding:20,overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
         <div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             <span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{opt.underlying}</span>
             <Badge label={opt.type} size="lg"/><Badge label={consensus} size="lg"/>
             {opt.beginner&&<span style={{fontSize:10,background:"#064e3b",color:"#34d399",borderRadius:4,padding:"3px 8px",fontWeight:700}}>BEGINNER</span>}
           </div>
-          <div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{opt.name} · {opt.sector} · Strike ${opt.strike} · {daysToExp} days</div>
+          <div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{opt.name} · {opt.sector} · Strike ${d.strike} · {daysToExp} days</div>
         </div>
-        <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
+        <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12,flexShrink:0}}>✕</button>
+      </div>
+
+      {/* Live status strip */}
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,fontSize:10}}>
+        {liveStatus==="loading"&&<><span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</span><span style={{color:"#64748b"}}>Fetching live contract data…</span></>}
+        {liveStatus==="live"&&<><span>🟢</span><span style={{color:"#4ade80",fontWeight:600}}>Live data{lastUpdated?` · ${lastUpdated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:""}</span></>}
+        {liveStatus==="model"&&<><span>🔬</span><span style={{color:"#fcd34d",fontWeight:600}}>Model estimate (live source unreachable)</span></>}
+        <button onClick={refreshLive} style={{marginLeft:"auto",background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:5,padding:"3px 9px",cursor:"pointer",fontSize:10}}>↻ Refresh</button>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
 
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
       </button>
 
+      {/* Conviction gauge */}
+      <ConvictionGauge counts={counts} total={ratings.length}/>
+
       <div style={{background:"linear-gradient(135deg,#0f2744,#1a1040)",border:"1px solid #1e40af",borderRadius:10,padding:14,marginBottom:10}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div><div style={{fontSize:10,color:"#64748b"}}>Premium / share</div><div style={{fontSize:22,fontWeight:900,color:isCall?"#60a5fa":"#c084fc"}}>${opt.premium?.toFixed(2)}</div></div>
+          <div><div style={{fontSize:10,color:"#64748b"}}>Premium / share</div><div style={{fontSize:22,fontWeight:900,color:isCall?"#60a5fa":"#c084fc"}}>${d.premium?.toFixed(2)}</div>
+            {live?.bid!=null&&<div style={{fontSize:9,color:"#64748b",marginTop:2}}>Bid ${live.bid?.toFixed(2)} / Ask ${live.ask?.toFixed(2)}</div>}
+          </div>
           <div><div style={{fontSize:10,color:"#64748b"}}>1 Contract (= max loss)</div><div style={{fontSize:22,fontWeight:900,color:"#f1f5f9"}}>${contractCost}</div></div>
         </div>
       </div>
@@ -1442,7 +1609,7 @@ function ScreenerDetail({opt,onClose}) {
         {[
           {l:"Breakeven",v:`$${breakeven}`,s:pctBE?`${pctBE}% ${isCall?"above":"below"} current`:null,sc:"#f59e0b"},
           {l:"Max Loss",v:`-$${contractCost}`,s:"your full premium",sc:"#ef4444"},
-          {l:"Max Profit",v:isCall?"Unlimited":`$${(opt.strike*100-parseFloat(contractCost)).toFixed(0)}`,s:isCall?"if stock rises above BE":null,sc:"#22c55e"},
+          {l:"Max Profit",v:isCall?"Unlimited":`$${(d.strike*100-parseFloat(contractCost)).toFixed(0)}`,s:isCall?"if stock rises above BE":null,sc:"#22c55e"},
           {l:"Days Left",v:daysToExp,s:daysToExp<7?"⚠️ Expiring soon!":daysToExp<30?"Few weeks":null,sc:daysToExp<7?"#ef4444":"#f59e0b"},
         ].map(m=>(
           <div key={m.l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
@@ -1453,16 +1620,28 @@ function ScreenerDetail({opt,onClose}) {
         ))}
       </div>
 
+      {/* Visual conviction row: IV meter, probability, vol/OI */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <IVMeter iv={d.iv}/>
+        <ProbabilityBadge delta={d.delta}/>
+      </div>
+      <div style={{marginBottom:10}}>
+        <VolOIBar vol={d.vol} oi={d.oi}/>
+      </div>
+      <div style={{marginBottom:10}}>
+        <DistanceRuler spot={d.spotPrice} strike={d.strike} breakeven={breakeven} isCall={isCall}/>
+      </div>
+
       {/* P&L Chart */}
       <div style={{marginBottom:10}}>
-        <PayoffChart strike={opt.strike} premium={opt.premium} type={opt.type} spotPrice={opt.spotPrice||opt.strike}/>
+        <PayoffChart strike={d.strike} premium={d.premium} type={opt.type} spotPrice={d.spotPrice||d.strike}/>
       </div>
 
       {/* Greeks */}
       <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10}}>
         <div style={{fontSize:11,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>Greeks</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-          {[{l:"Delta",v:opt.delta?.toFixed(3),tip:"~$"+Math.abs(opt.delta||0).toFixed(2)+" per $1 move"},{l:"Theta",v:opt.theta?.toFixed(3),tip:`-$${Math.abs(opt.theta||0).toFixed(2)}/day decay`},{l:"Gamma",v:opt.gamma?.toFixed(3),tip:"Delta acceleration"},{l:"Vega",v:opt.vega?.toFixed(3),tip:"IV sensitivity"}].map(g=>(
+          {[{l:"Delta",v:d.delta?.toFixed(3),tip:"~$"+Math.abs(d.delta||0).toFixed(2)+" per $1 move"},{l:"Theta",v:d.theta?.toFixed(3),tip:`-$${Math.abs(d.theta||0).toFixed(2)}/day decay`},{l:"Gamma",v:d.gamma?.toFixed(3),tip:"Delta acceleration"},{l:"Vega",v:d.vega?.toFixed(3),tip:"IV sensitivity"}].map(g=>(
             <div key={g.l} style={{background:"#0f172a",borderRadius:6,padding:"8px 6px",textAlign:"center"}}>
               <div style={{fontSize:9,color:"#64748b"}}>{g.l}</div>
               <div style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>{g.v}</div>
@@ -1507,12 +1686,13 @@ function ScreenerDetail({opt,onClose}) {
         <div style={{marginTop:4,color:"#374151"}}>⚠️ Start with 1 contract. Options can expire worthless. Not financial advice.</div>
       </div>
       {showReport&&<AnalystReportModal subject={{
-        ticker:`${opt.underlying} $${opt.strike} ${opt.type}`, name:opt.name, category:opt.sector, assetType:"option",
-        price:opt.premium, consensus, counts, ratingsCount:ratings.length, changeP:null,
+        ticker:`${opt.underlying} $${d.strike} ${opt.type}`, name:opt.name, category:opt.sector, assetType:"option",
+        price:d.premium, consensus, counts, ratingsCount:ratings.length, changeP:null,
       }} onClose={()=>setShowReport(false)}/>}
     </div>
   );
 }
+
 
 // ─── STOCK / INDEX / FUTURES CARDS & DETAILS (condensed) ─────────────────────
 function StockCard({stock,onClick,selected}) {
