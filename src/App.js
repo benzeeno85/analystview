@@ -134,15 +134,6 @@ const STOCKS = {
     { ticker:"PINS",  name:"Pinterest Inc.",            sector:"Communication"    },
     { ticker:"SPOT",  name:"Spotify Technology",        sector:"Communication"    },
     { ticker:"RBLX",  name:"Roblox Corp.",              sector:"Communication"    },
-    // ── ETFs ──────────────────────────────────────────────────────────────
-    { ticker:"SPY",   name:"SPDR S&P 500 ETF",          sector:"ETF"              },
-    { ticker:"QQQ",   name:"Invesco NASDAQ 100 ETF",    sector:"ETF"              },
-    { ticker:"IWM",   name:"iShares Russell 2000 ETF",  sector:"ETF"              },
-    { ticker:"GLD",   name:"SPDR Gold Shares ETF",      sector:"ETF"              },
-    { ticker:"TLT",   name:"iShares 20Y Treasury ETF",  sector:"ETF"              },
-    { ticker:"ARKK",  name:"ARK Innovation ETF",        sector:"ETF"              },
-    { ticker:"XLF",   name:"Financial Select Sector",   sector:"ETF"              },
-    { ticker:"XLK",   name:"Technology Select Sector",  sector:"ETF"              },
     // ── High Volume / Meme ────────────────────────────────────────────────
     { ticker:"AMC",   name:"AMC Entertainment",         sector:"Consumer Disc."   },
     { ticker:"GME",   name:"GameStop Corp.",             sector:"Consumer Disc."   },
@@ -219,6 +210,100 @@ const STOCKS = {
     { ticker:"CPX.TO",   name:"Capital Power Corp.",         sector:"Utilities"        },
   ],
 };
+
+// ─── ETF UNIVERSE — comprehensive, institutional-grade reference data ────────
+// issuer/category/expenseRatio/benchmark/inception are stable reference facts.
+// Price/change/volume are always live (same fetch pipeline as stocks) — never seeded stale.
+const ETFS = [
+  // ── Broad Market / Core ──────────────────────────────────────────────────
+  { ticker:"SPY",  name:"SPDR S&P 500 ETF Trust",         issuer:"State Street", category:"Broad Market", expenseRatio:0.09, benchmark:"S&P 500",            inception:1993 },
+  { ticker:"VOO",  name:"Vanguard S&P 500 ETF",           issuer:"Vanguard",     category:"Broad Market", expenseRatio:0.03, benchmark:"S&P 500",            inception:2010 },
+  { ticker:"IVV",  name:"iShares Core S&P 500 ETF",       issuer:"BlackRock",    category:"Broad Market", expenseRatio:0.03, benchmark:"S&P 500",            inception:2000 },
+  { ticker:"VTI",  name:"Vanguard Total Stock Market ETF",issuer:"Vanguard",     category:"Broad Market", expenseRatio:0.03, benchmark:"CRSP US Total Market",inception:2001 },
+  { ticker:"QQQ",  name:"Invesco QQQ Trust",              issuer:"Invesco",      category:"Broad Market", expenseRatio:0.20, benchmark:"NASDAQ 100",          inception:1999 },
+  { ticker:"QQQM", name:"Invesco NASDAQ 100 ETF",         issuer:"Invesco",      category:"Broad Market", expenseRatio:0.15, benchmark:"NASDAQ 100",          inception:2020 },
+  { ticker:"DIA",  name:"SPDR Dow Jones Industrial ETF",  issuer:"State Street", category:"Broad Market", expenseRatio:0.16, benchmark:"Dow Jones Industrial",inception:1998 },
+  { ticker:"IWM",  name:"iShares Russell 2000 ETF",       issuer:"BlackRock",    category:"Broad Market", expenseRatio:0.19, benchmark:"Russell 2000",        inception:2000 },
+  { ticker:"IWB",  name:"iShares Russell 1000 ETF",       issuer:"BlackRock",    category:"Broad Market", expenseRatio:0.15, benchmark:"Russell 1000",        inception:2000 },
+  { ticker:"VXF",  name:"Vanguard Extended Market ETF",   issuer:"Vanguard",     category:"Broad Market", expenseRatio:0.06, benchmark:"S&P Completion Index",inception:2001 },
+  // ── Sector SPDRs ──────────────────────────────────────────────────────────
+  { ticker:"XLF",  name:"Financial Select Sector SPDR",   issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Financials",       inception:1998 },
+  { ticker:"XLK",  name:"Technology Select Sector SPDR",  issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Technology",       inception:1998 },
+  { ticker:"XLE",  name:"Energy Select Sector SPDR",      issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Energy",           inception:1998 },
+  { ticker:"XLV",  name:"Health Care Select Sector SPDR", issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Health Care",      inception:1998 },
+  { ticker:"XLI",  name:"Industrial Select Sector SPDR",  issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Industrials",      inception:1998 },
+  { ticker:"XLY",  name:"Consumer Discretionary SPDR",    issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Cons. Disc.",      inception:1998 },
+  { ticker:"XLP",  name:"Consumer Staples Select SPDR",   issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Cons. Staples",    inception:1998 },
+  { ticker:"XLU",  name:"Utilities Select Sector SPDR",   issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Utilities",        inception:1998 },
+  { ticker:"XLB",  name:"Materials Select Sector SPDR",   issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Materials",        inception:1998 },
+  { ticker:"XLRE", name:"Real Estate Select Sector SPDR", issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Real Estate",      inception:2015 },
+  { ticker:"XLC",  name:"Communication Services SPDR",    issuer:"State Street", category:"Sector", expenseRatio:0.09, benchmark:"S&P 500 Comm. Services",   inception:2018 },
+  // ── Fixed Income / Bonds ─────────────────────────────────────────────────
+  { ticker:"AGG",  name:"iShares Core US Aggregate Bond ETF", issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.03, benchmark:"Bloomberg US Agg Bond",   inception:2003 },
+  { ticker:"BND",  name:"Vanguard Total Bond Market ETF",     issuer:"Vanguard",  category:"Fixed Income", expenseRatio:0.03, benchmark:"Bloomberg US Agg Float", inception:2007 },
+  { ticker:"TLT",  name:"iShares 20+ Year Treasury Bond ETF", issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.15, benchmark:"ICE 20+Y Treasury",       inception:2002 },
+  { ticker:"IEF",  name:"iShares 7-10 Year Treasury ETF",     issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.15, benchmark:"ICE 7-10Y Treasury",      inception:2002 },
+  { ticker:"SHY",  name:"iShares 1-3 Year Treasury ETF",      issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.15, benchmark:"ICE 1-3Y Treasury",       inception:2002 },
+  { ticker:"LQD",  name:"iShares Investment Grade Corp Bond", issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.14, benchmark:"Markit iBoxx IG Corp",    inception:2002 },
+  { ticker:"HYG",  name:"iShares High Yield Corp Bond ETF",   issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.49, benchmark:"Markit iBoxx HY Corp",    inception:2007 },
+  { ticker:"TIP",  name:"iShares TIPS Bond ETF",              issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.19, benchmark:"ICE US Treasury TIPS",    inception:2003 },
+  { ticker:"MUB",  name:"iShares National Muni Bond ETF",     issuer:"BlackRock", category:"Fixed Income", expenseRatio:0.05, benchmark:"ICE AMT-Free Muni",       inception:2007 },
+  { ticker:"BNDX", name:"Vanguard Total Intl Bond ETF",       issuer:"Vanguard",  category:"Fixed Income", expenseRatio:0.07, benchmark:"Bloomberg Global Agg ex-US",inception:2013 },
+  // ── Commodities ───────────────────────────────────────────────────────────
+  { ticker:"GLD",  name:"SPDR Gold Shares",                issuer:"State Street", category:"Commodity", expenseRatio:0.40, benchmark:"Gold Spot Price",       inception:2004 },
+  { ticker:"IAU",  name:"iShares Gold Trust",              issuer:"BlackRock",    category:"Commodity", expenseRatio:0.25, benchmark:"Gold Spot Price",       inception:2005 },
+  { ticker:"SLV",  name:"iShares Silver Trust",            issuer:"BlackRock",    category:"Commodity", expenseRatio:0.50, benchmark:"Silver Spot Price",     inception:2006 },
+  { ticker:"USO",  name:"United States Oil Fund",          issuer:"USCF",         category:"Commodity", expenseRatio:0.60, benchmark:"WTI Crude Futures",     inception:2006 },
+  { ticker:"UNG",  name:"United States Natural Gas Fund",  issuer:"USCF",         category:"Commodity", expenseRatio:1.10, benchmark:"Henry Hub Nat Gas Fut.",inception:2007 },
+  { ticker:"DBC",  name:"Invesco DB Commodity Index ETF",  issuer:"Invesco",      category:"Commodity", expenseRatio:0.85, benchmark:"DBIQ Optimum Yield",    inception:2006 },
+  // ── International / Emerging Markets ─────────────────────────────────────
+  { ticker:"EFA",  name:"iShares MSCI EAFE ETF",           issuer:"BlackRock", category:"International", expenseRatio:0.32, benchmark:"MSCI EAFE",           inception:2001 },
+  { ticker:"VEA",  name:"Vanguard FTSE Developed Mkts ETF",issuer:"Vanguard",  category:"International", expenseRatio:0.05, benchmark:"FTSE Developed ex-US",inception:2007 },
+  { ticker:"EEM",  name:"iShares MSCI Emerging Markets ETF",issuer:"BlackRock",category:"International", expenseRatio:0.68, benchmark:"MSCI Emerging Markets",inception:2003 },
+  { ticker:"VWO",  name:"Vanguard FTSE Emerging Mkts ETF", issuer:"Vanguard",  category:"International", expenseRatio:0.07, benchmark:"FTSE Emerging Markets",inception:2005 },
+  { ticker:"FXI",  name:"iShares China Large-Cap ETF",     issuer:"BlackRock", category:"International", expenseRatio:0.74, benchmark:"FTSE China 50",       inception:2004 },
+  { ticker:"EWJ",  name:"iShares MSCI Japan ETF",          issuer:"BlackRock", category:"International", expenseRatio:0.50, benchmark:"MSCI Japan",          inception:1996 },
+  { ticker:"INDA", name:"iShares MSCI India ETF",          issuer:"BlackRock", category:"International", expenseRatio:0.62, benchmark:"MSCI India",          inception:2012 },
+  { ticker:"EWC",  name:"iShares MSCI Canada ETF",         issuer:"BlackRock", category:"International", expenseRatio:0.50, benchmark:"MSCI Canada",         inception:1996 },
+  // ── Style / Factor ────────────────────────────────────────────────────────
+  { ticker:"VUG",  name:"Vanguard Growth ETF",             issuer:"Vanguard",  category:"Style / Factor", expenseRatio:0.04, benchmark:"CRSP US Large Growth", inception:2004 },
+  { ticker:"VTV",  name:"Vanguard Value ETF",              issuer:"Vanguard",  category:"Style / Factor", expenseRatio:0.04, benchmark:"CRSP US Large Value",  inception:2004 },
+  { ticker:"IWF",  name:"iShares Russell 1000 Growth ETF", issuer:"BlackRock", category:"Style / Factor", expenseRatio:0.19, benchmark:"Russell 1000 Growth",  inception:2000 },
+  { ticker:"IWD",  name:"iShares Russell 1000 Value ETF",  issuer:"BlackRock", category:"Style / Factor", expenseRatio:0.19, benchmark:"Russell 1000 Value",   inception:2000 },
+  { ticker:"MTUM", name:"iShares MSCI USA Momentum ETF",   issuer:"BlackRock", category:"Style / Factor", expenseRatio:0.15, benchmark:"MSCI USA Momentum",    inception:2013 },
+  { ticker:"USMV", name:"iShares MSCI USA Min Vol ETF",    issuer:"BlackRock", category:"Style / Factor", expenseRatio:0.15, benchmark:"MSCI USA Min Vol.",    inception:2011 },
+  // ── Dividend / Income ─────────────────────────────────────────────────────
+  { ticker:"VYM",  name:"Vanguard High Dividend Yield ETF",issuer:"Vanguard",  category:"Dividend", expenseRatio:0.06, benchmark:"FTSE High Dividend Yield", inception:2006 },
+  { ticker:"SCHD", name:"Schwab US Dividend Equity ETF",   issuer:"Schwab",    category:"Dividend", expenseRatio:0.06, benchmark:"Dow Jones Div. 100",       inception:2011 },
+  { ticker:"DVY",  name:"iShares Select Dividend ETF",     issuer:"BlackRock", category:"Dividend", expenseRatio:0.38, benchmark:"Dow Jones US Select Div.", inception:2003 },
+  { ticker:"HDV",  name:"iShares Core High Dividend ETF",  issuer:"BlackRock", category:"Dividend", expenseRatio:0.08, benchmark:"Morningstar Div. Yield Focus",inception:2011 },
+  { ticker:"NOBL", name:"ProShares S&P Div. Aristocrats",  issuer:"ProShares", category:"Dividend", expenseRatio:0.35, benchmark:"S&P 500 Div. Aristocrats", inception:2013 },
+  { ticker:"JEPI", name:"JPMorgan Equity Premium Income",  issuer:"JPMorgan",  category:"Dividend", expenseRatio:0.35, benchmark:"Actively managed (options overlay)",inception:2020 },
+  // ── Thematic / Innovation / Tech ──────────────────────────────────────────
+  { ticker:"ARKK", name:"ARK Innovation ETF",              issuer:"ARK Invest", category:"Thematic", expenseRatio:0.75, benchmark:"Actively managed",         inception:2014 },
+  { ticker:"SMH",  name:"VanEck Semiconductor ETF",        issuer:"VanEck",     category:"Thematic", expenseRatio:0.35, benchmark:"MVIS US Semiconductor",    inception:2011 },
+  { ticker:"SOXX", name:"iShares Semiconductor ETF",       issuer:"BlackRock",  category:"Thematic", expenseRatio:0.35, benchmark:"ICE Semiconductor",        inception:2001 },
+  { ticker:"ICLN", name:"iShares Global Clean Energy ETF", issuer:"BlackRock",  category:"Thematic", expenseRatio:0.41, benchmark:"S&P Global Clean Energy",  inception:2008 },
+  { ticker:"HACK", name:"ETFMG Prime Cyber Security ETF",  issuer:"ETFMG",      category:"Thematic", expenseRatio:0.60, benchmark:"Prime Cyber Defense",      inception:2014 },
+  { ticker:"IGV",  name:"iShares Expanded Tech-Software",  issuer:"BlackRock",  category:"Thematic", expenseRatio:0.41, benchmark:"S&P North Am. Software",   inception:2001 },
+  { ticker:"BOTZ", name:"Global X Robotics & AI ETF",      issuer:"Global X",   category:"Thematic", expenseRatio:0.68, benchmark:"Indxx Robotics & AI",      inception:2016 },
+  // ── Real Estate ───────────────────────────────────────────────────────────
+  { ticker:"VNQ",  name:"Vanguard Real Estate ETF",        issuer:"Vanguard",  category:"Real Estate", expenseRatio:0.13, benchmark:"MSCI US IMI Real Estate", inception:2004 },
+  { ticker:"IYR",  name:"iShares US Real Estate ETF",      issuer:"BlackRock", category:"Real Estate", expenseRatio:0.39, benchmark:"Dow Jones US Real Estate",inception:2000 },
+  { ticker:"SCHH", name:"Schwab US REIT ETF",              issuer:"Schwab",    category:"Real Estate", expenseRatio:0.07, benchmark:"Dow Jones Equity REIT",   inception:2011 },
+  // ── Volatility / Hedge ────────────────────────────────────────────────────
+  { ticker:"VXX",  name:"iPath S&P 500 VIX Sh-Term Fut.",  issuer:"Barclays",  category:"Volatility", expenseRatio:0.89, benchmark:"S&P 500 VIX Short-Term Fut.",inception:2018 },
+  { ticker:"UVXY", name:"ProShares Ultra VIX Sh-Term Fut.",issuer:"ProShares", category:"Volatility", expenseRatio:0.95, benchmark:"1.5x S&P VIX ST Futures",   inception:2011 },
+  { ticker:"SVXY", name:"ProShares Short VIX Sh-Term Fut.",issuer:"ProShares", category:"Volatility", expenseRatio:0.95, benchmark:"-0.5x S&P VIX ST Futures",  inception:2011 },
+  // ── Leveraged / Inverse (high risk) ───────────────────────────────────────
+  { ticker:"TQQQ", name:"ProShares UltraPro QQQ (3x)",     issuer:"ProShares", category:"Leveraged", expenseRatio:0.86, benchmark:"3x NASDAQ 100",  inception:2010, leveraged:true },
+  { ticker:"SQQQ", name:"ProShares UltraPro Short QQQ",    issuer:"ProShares", category:"Leveraged", expenseRatio:0.95, benchmark:"-3x NASDAQ 100", inception:2010, leveraged:true },
+  { ticker:"SPXL", name:"Direxion Daily S&P 500 Bull 3X",  issuer:"Direxion",  category:"Leveraged", expenseRatio:1.00, benchmark:"3x S&P 500",     inception:2008, leveraged:true },
+  { ticker:"SPXS", name:"Direxion Daily S&P 500 Bear 3X",  issuer:"Direxion",  category:"Leveraged", expenseRatio:1.08, benchmark:"-3x S&P 500",    inception:2008, leveraged:true },
+  { ticker:"SOXL", name:"Direxion Daily Semiconductor 3X", issuer:"Direxion",  category:"Leveraged", expenseRatio:0.75, benchmark:"3x PHLX Semiconductor", inception:2010, leveraged:true },
+  { ticker:"SOXS", name:"Direxion Daily Semiconductor -3X",issuer:"Direxion",  category:"Leveraged", expenseRatio:0.75, benchmark:"-3x PHLX Semiconductor",inception:2010, leveraged:true },
+];
+const ETF_CATEGORIES = [...new Set(ETFS.map(e=>e.category))];
 
 const INDICES = [
   { symbol:"SPX",   name:"S&P 500",          region:"🇺🇸", ySymbol:"^GSPC"    },
@@ -392,6 +477,19 @@ const SEED_PRICES = {
   "BCE.TO":33.45,  "T.TO":22.80,    "RCI.B.TO":42.40,"QBR.B.TO":32.80,
   // TSX — Utilities
   "FTS.TO":54.80,  "H.TO":38.20,    "AQN.TO":8.42,   "EMA.TO":48.80,  "CPX.TO":42.40,
+};
+const SEED_ETF_PRICES = {
+  SPY:562.40, VOO:518.20, IVV:568.80, VTI:288.40, QQQ:492.60, QQQM:212.80, DIA:428.20, IWM:224.60, IWB:322.40, VXF:198.60,
+  XLF:48.20, XLK:238.40, XLE:92.80, XLV:142.60, XLI:138.40, XLY:198.20, XLP:78.40, XLU:76.80, XLB:88.60, XLRE:42.20, XLC:98.40,
+  AGG:98.40, BND:72.80, TLT:92.60, IEF:94.80, SHY:81.20, LQD:108.40, HYG:78.60, TIP:108.20, MUB:106.80, BNDX:48.60,
+  GLD:242.80, IAU:49.80, SLV:28.40, USO:72.60, UNG:14.80, DBC:22.40,
+  EFA:82.40, VEA:52.80, EEM:42.60, VWO:44.80, FXI:28.40, EWJ:68.20, INDA:52.40, EWC:38.60,
+  VUG:398.40, VTV:182.60, IWF:348.20, IWD:198.40, MTUM:212.60, USMV:88.40,
+  VYM:128.40, SCHD:28.60, DVY:128.80, HDV:112.40, NOBL:102.80, JEPI:58.40,
+  ARKK:52.80, SMH:268.40, SOXX:228.60, ICLN:12.80, HACK:68.40, IGV:98.60, BOTZ:32.40,
+  VNQ:92.80, IYR:98.40, SCHH:22.60,
+  VXX:48.60, UVXY:22.40, SVXY:38.80,
+  TQQQ:82.40, SQQQ:12.80, SPXL:148.60, SPXS:8.40, SOXL:24.60, SOXS:14.20,
 };
 const SEED_INDEX = {
   SPX:{price:4850.20,change:12.40,changeP:0.26},NDX:{price:16920.80,change:45.20,changeP:0.27},
@@ -2182,6 +2280,148 @@ function StockDetail({stock,onClose}) {
   );
 }
 
+// ─── ETF CARD & DETAIL — institutional-grade reference data + live pricing ───
+const ETF_CAT_COLOR={
+  "Broad Market":"#3b82f6","Sector":"#a855f7","Fixed Income":"#22c55e","Commodity":"#f59e0b",
+  "International":"#06b6d4","Style / Factor":"#84cc16","Dividend":"#eab308","Thematic":"#ec4899",
+  "Real Estate":"#14b8a6","Volatility":"#f97316","Leveraged":"#ef4444",
+};
+function ETFCard({etf,onClick,selected}) {
+  const consensus=etf.consensus||"Hold";
+  const catColor=ETF_CAT_COLOR[etf.category]||"#64748b";
+  return (
+    <div onClick={onClick} style={{background:selected?"#1a2235":"#111827",border:`1.5px solid ${selected?"#3b82f6":"#1f2937"}`,borderRadius:10,padding:"14px 16px",cursor:"pointer",transition:"all 0.15s"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:"#e2e8f0"}}>{etf.ticker}</span>
+            <span style={{fontSize:10,color:catColor,background:`${catColor}18`,border:`1px solid ${catColor}44`,borderRadius:3,padding:"2px 6px"}}>{etf.category}</span>
+            {etf.leveraged&&<span style={{fontSize:9,color:"#ef4444",background:"#7f1d1d33",border:"1px solid #ef444444",borderRadius:3,padding:"2px 6px",fontWeight:700}}>⚠️ LEVERAGED</span>}
+            {etf.source&&!etf.loading&&<SourcePill source={etf.source}/>}
+          </div>
+          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{etf.name} · {etf.issuer}</div>
+        </div>
+        <Badge label={consensus}/>
+      </div>
+      {etf.loading?<Skeleton/>:(
+        <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginTop:10}}>
+            <div>
+              <span style={{fontSize:18,fontWeight:700,color:"#f1f5f9"}}>{etf.price?`$${etf.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</span>
+              {etf.changeP!==undefined&&<span style={{marginLeft:6}}><PctBadge v={etf.changeP}/></span>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:10,color:"#6b7280"}}>Expense Ratio</div>
+              <div style={{fontSize:12,fontWeight:700,color:etf.expenseRatio<=0.10?"#22c55e":etf.expenseRatio<=0.40?"#f59e0b":"#ef4444"}}>{etf.expenseRatio.toFixed(2)}%</div>
+            </div>
+          </div>
+          {etf.ratings&&<BreakdownBar ratings={etf.ratings}/>}
+          <div style={{fontSize:10,color:"#4b5563",marginTop:4}}>Tracks {etf.benchmark}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ETFDetail({etf,onClose}) {
+  const [showReport,setShowReport]=useState(false);
+  const ratings=etf.ratings||[]; const consensus=etf.consensus||"Hold";
+  const counts={}; CONSENSUS_ORDER.forEach(r=>counts[r]=0); ratings.forEach(r=>{ if(counts[r.rating]!==undefined) counts[r.rating]++; });
+  const catColor=ETF_CAT_COLOR[etf.category]||"#64748b";
+  const yearsOld=new Date().getFullYear()-etf.inception;
+  return (
+    <div style={{background:"#0f172a",border:"1.5px solid #1e3a5f",borderRadius:12,padding:20,overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{etf.ticker}</span>
+            <Badge label={consensus} size="lg"/>
+            <span style={{fontSize:11,color:catColor,background:`${catColor}18`,border:`1px solid ${catColor}44`,borderRadius:4,padding:"3px 8px",fontWeight:700}}>{etf.category}</span>
+            {etf.leveraged&&<span style={{fontSize:10,color:"#fca5a5",background:"#7f1d1d",borderRadius:4,padding:"3px 8px",fontWeight:700}}>⚠️ LEVERAGED — DAILY RESET, NOT BUY-AND-HOLD</span>}
+          </div>
+          <div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{etf.name} · {etf.issuer}</div>
+        </div>
+        <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12,flexShrink:0}}>✕</button>
+      </div>
+
+      <LatestHeadlines symbol={etf.ticker} name={etf.name}/>
+      <BrokerLinks ticker={etf.ticker}/>
+
+      <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>📊</span> Generate Full Analyst Report with Conviction Evidence
+      </button>
+
+      {/* Live price */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div style={{background:"#1e293b",borderRadius:8,padding:"11px 13px"}}>
+          <div style={{fontSize:10,color:"#64748b",marginBottom:3}}>Price</div>
+          <div style={{fontSize:16,fontWeight:800,color:"#f1f5f9"}}>{etf.price?`$${etf.price.toFixed(2)}`:"—"}</div>
+          {etf.changeP!==undefined&&<div style={{fontSize:11,color:etf.changeP>=0?"#22c55e":"#ef4444",marginTop:2}}>{etf.changeP>=0?"▲":"▼"} {Math.abs(etf.changeP).toFixed(2)}%</div>}
+        </div>
+        <div style={{background:"#1e293b",borderRadius:8,padding:"11px 13px"}}>
+          <div style={{fontSize:10,color:"#64748b",marginBottom:3}}>Day Range</div>
+          <div style={{fontSize:14,fontWeight:800,color:"#f1f5f9"}}>{etf.low&&etf.high?`$${etf.low.toFixed(2)}–$${etf.high.toFixed(2)}`:"—"}</div>
+        </div>
+      </div>
+
+      {/* Institutional reference data — the core of what was asked for */}
+      <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>📋 Fund Fundamentals</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[
+            {l:"Issuer",v:etf.issuer},
+            {l:"Benchmark Index",v:etf.benchmark},
+            {l:"Expense Ratio",v:`${etf.expenseRatio.toFixed(2)}%`,c:etf.expenseRatio<=0.10?"#22c55e":etf.expenseRatio<=0.40?"#f59e0b":"#ef4444"},
+            {l:"Inception",v:`${etf.inception} (${yearsOld}y track record)`},
+            {l:"Category",v:etf.category},
+            {l:"Volume",v:etf.volume?(etf.volume>=1e6?`${(etf.volume/1e6).toFixed(1)}M`:`${(etf.volume/1e3).toFixed(0)}K`):"—"},
+          ].map(m=>(
+            <div key={m.l} style={{background:"#0f172a",borderRadius:6,padding:"8px 10px"}}>
+              <div style={{fontSize:9,color:"#64748b"}}>{m.l}</div>
+              <div style={{fontSize:12,fontWeight:700,color:m.c||"#e2e8f0"}}>{m.v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:8,fontSize:9,color:"#374151",lineHeight:1.5}}>
+          Expense ratio, issuer, benchmark and inception are reference data (change rarely). Price, change and volume are live market data.
+        </div>
+      </div>
+
+      {ratings.length>0&&<>
+        <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:"#94a3b8",marginBottom:10,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Institutional Flow Sentiment</div>
+          {CONSENSUS_ORDER.map(r=>{
+            const pct=ratings.length?Math.round((counts[r]/ratings.length)*100):0;
+            return <div key={r} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+              <span style={{width:82,fontSize:11,color:"#94a3b8",flexShrink:0}}>{r}</span>
+              <div style={{flex:1,background:"#0f172a",borderRadius:3,height:7,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:BAR[r],transition:"width 0.5s"}}/></div>
+              <span style={{width:22,fontSize:11,color:"#64748b",textAlign:"right"}}>{counts[r]}</span>
+            </div>;
+          })}
+        </div>
+        <div style={{fontSize:11,color:"#94a3b8",marginBottom:8,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Desk Ratings</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+          {ratings.map((r,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",background:"#1e293b",borderRadius:7,padding:"9px 12px",gap:8}}>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#e2e8f0"}}>{r.firm}</div><div style={{fontSize:10,color:"#64748b"}}>{r.daysAgo}d ago</div></div>
+              <Badge label={r.rating}/>
+            </div>
+          ))}
+        </div>
+      </>}
+
+      {etf.leveraged&&<div style={{background:"#450a0a",border:"1px solid #991b1b",borderRadius:8,padding:12,fontSize:10,color:"#fca5a5",lineHeight:1.7}}>
+        ⚠️ <strong>Leveraged/inverse ETF:</strong> resets daily. Returns compound and can diverge significantly from the stated multiple over more than one day, especially in volatile markets. Designed for short-term tactical use, not buy-and-hold. Not financial advice.
+      </div>}
+
+      {showReport&&<AnalystReportModal subject={{
+        ticker:etf.ticker, name:etf.name, category:`${etf.category} ETF (${etf.issuer})`, assetType:"stock",
+        price:etf.price, consensus, counts, ratingsCount:ratings.length, changeP:etf.changeP,
+      }} onClose={()=>setShowReport(false)}/>}
+    </div>
+  );
+}
+
 function IndexDetail({idx,data,onClose}) {
   const [showReport,setShowReport]=useState(false);
   const ratings=seedIndexRatings(idx.symbol);
@@ -2278,6 +2518,8 @@ export default function App() {
   const [beginnerOnly,setBeginnerOnly]=useState(false);
   const [futFilter,setFutFilter]=useState("All");
   const [stockData,setStockData]=useState({});
+  const [etfData,setEtfData]=useState({});
+  const [etfCategory,setEtfCategory]=useState("All");
   const [indexData,setIndexData]=useState({});
   const [futuresData,setFuturesData]=useState({});
   const [selected,setSelected]=useState(null);
@@ -2310,6 +2552,17 @@ export default function App() {
     } else { ratings=seedRatings(stock.ticker,target); consensus=calcConsensus(ratings); avgTarget=target??(price*(0.90+Math.random()*0.28)); }
     setStockData(p=>({...p,[key]:{...stock,loading:false,price,change:quote?.change??0,changeP:quote?.changeP??0,high:quote?.high,low:quote?.low,volume:quote?.volume,marketCap:quote?.marketCap,pe:quote?.pe,eps:quote?.eps,yearHigh:quote?.yearHigh,yearLow:quote?.yearLow,avgVolume:quote?.avgVolume,source:quote?.source??"Seed Data",ratings,consensus,avgTarget:+avgTarget.toFixed(2)}}));
     loadingRef.current[key]=false;
+  },[]);
+
+  const loadETF=useCallback(async(etf)=>{
+    const key=etf.ticker; if(loadingRef.current["e_"+key]) return; loadingRef.current["e_"+key]=true;
+    setEtfData(p=>({...p,[key]:{...etf,loading:true}}));
+    const quote=await fetchQuote(etf.ticker);
+    const price=quote?.price??SEED_ETF_PRICES[etf.ticker]??100;
+    const ratings=seedRatings(etf.ticker,price);
+    const consensus=calcConsensus(ratings);
+    setEtfData(p=>({...p,[key]:{...etf,loading:false,price,change:quote?.change??0,changeP:quote?.changeP??0,high:quote?.high,low:quote?.low,volume:quote?.volume,source:quote?.source??"Seed Data",ratings,consensus}}));
+    loadingRef.current["e_"+key]=false;
   },[]);
 
   const loadIndex=useCallback(async(idx)=>{ const key=idx.symbol; if(loadingRef.current["i_"+key]) return; loadingRef.current["i_"+key]=true; const quote=await fetchYahoo(idx.ySymbol).catch(()=>null); setIndexData(p=>({...p,[key]:quote??SEED_INDEX[key]??{price:0,change:0,changeP:0}})); loadingRef.current["i_"+key]=false; },[]);
@@ -2408,6 +2661,9 @@ export default function App() {
 
   useEffect(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },[subTab,loadStock,loadIndex,loadFuture]);
   useEffect(()=>{ const t=setInterval(()=>{ loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); INDICES.forEach(i=>loadIndex(i)); FUTURES.forEach(f=>loadFuture(f)); setLastRefresh(new Date()); },60000); return()=>clearInterval(t); },[subTab,loadStock,loadIndex,loadFuture]);
+  // ETFs load lazily — only when that tab is opened, to avoid 76 extra concurrent
+  // requests firing on every app load/60s refresh alongside stocks/indices/futures.
+  useEffect(()=>{ if(tab==="etfs"&&Object.keys(etfData).length===0){ ETFS.forEach(e=>loadETF(e)); } },[tab,loadETF,etfData]);
 
   const handleSaveKeys=(vals)=>{ sessionStorage.setItem("av_keys",JSON.stringify(vals)); setApiKeys(vals); setShowSettings(false); loadingRef.current={}; STOCKS[subTab]?.forEach(s=>loadStock(s)); setTimeout(loadScreenerPrices,200); };
 
@@ -2415,12 +2671,19 @@ export default function App() {
   const keysConfigured=[apiKeys.fmp,apiKeys.finnhub,apiKeys.alphavantage,apiKeys.polygon].filter(k=>k&&k.length>10).length;
   const currentStocks=STOCKS[subTab]?.map(s=>stockData[s.ticker]||{...s,loading:true})||[];
   const filteredStocks=currentStocks.filter(s=>{ const q=search.toLowerCase(); return !q||s.ticker.toLowerCase().includes(q)||s.name.toLowerCase().includes(q)||s.sector.toLowerCase().includes(q); });
+  const currentETFs=ETFS.map(e=>etfData[e.ticker]||{...e,loading:true});
+  const filteredETFs=currentETFs.filter(e=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||e.ticker.toLowerCase().includes(q)||e.name.toLowerCase().includes(q)||e.issuer.toLowerCase().includes(q)||e.benchmark.toLowerCase().includes(q);
+    const matchCat=etfCategory==="All"||e.category===etfCategory;
+    return matchSearch&&matchCat;
+  });
   const activeTier=BUDGET_TIERS.find(t=>t.id===budgetFilter)||BUDGET_TIERS[0];
   const filteredScreener=liveScreenerOptions.filter(o=>{ const daysLeft=Math.ceil((new Date(o.expiry)-new Date())/(1000*60*60*24)); if(daysLeft<=0) return false; const q=search.toLowerCase(); const matchSearch=!q||o.underlying.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)||o.sector?.toLowerCase().includes(q); const matchType=optFilter==="ALL"||o.type===optFilter; const cc=o.premium*100; const matchBudget=budgetFilter==="all"||(activeTier.specOnly?o.risk>=4:(cc<activeTier.max&&o.risk<4)); return matchSearch&&matchType&&matchBudget&&(!beginnerOnly||o.beginner); }).sort((a,b)=>a.premium*100-b.premium*100);
   const futCategories=["All",...new Set(FUTURES.map(f=>f.category))];
   const filteredFutures=FUTURES.filter(f=>{ const q=search.toLowerCase(); return(!q||f.name.toLowerCase().includes(q)||f.symbol.toLowerCase().includes(q))&&(futFilter==="All"||f.category===futFilter); });
   const filteredIndices=INDICES.filter(i=>{ const q=search.toLowerCase(); return !q||i.symbol.toLowerCase().includes(q)||i.name.toLowerCase().includes(q); });
-  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"}];
+  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"etfs",label:"🧺 ETFs"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"}];
 
   return (
     <div style={{minHeight:"100vh",background:"#060e1a",color:"#e2e8f0",fontFamily:"'Inter',-apple-system,sans-serif",display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -2451,6 +2714,14 @@ export default function App() {
 
       {/* Sub-tabs per section */}
       {tab==="stocks"&&(<div style={{background:"#080f1c",borderBottom:"1px solid #111827",padding:"0 16px",display:"flex",flexShrink:0}}>{[["SP500","🇺🇸 S&P 500"],["TSX","🇨🇦 TSX"]].map(([id,label])=>(<button key={id} onClick={()=>{setSubTab(id);setSelected(null);}} style={{background:"none",border:"none",cursor:"pointer",padding:"9px 14px",fontSize:11,fontWeight:700,color:subTab===id?"#60a5fa":"#64748b",borderBottom:subTab===id?"2px solid #60a5fa":"2px solid transparent"}}>{label}</button>))}</div>)}
+
+      {tab==="etfs"&&(<div style={{background:"#080f1c",borderBottom:"1px solid #111827",padding:"8px 16px",display:"flex",gap:6,flexShrink:0,overflowX:"auto",alignItems:"center"}}>
+        {["All",...ETF_CATEGORIES].map(cat=>{
+          const c=ETF_CAT_COLOR[cat]||"#60a5fa";
+          return <button key={cat} onClick={()=>{setEtfCategory(cat);setSelected(null);}} style={{background:etfCategory===cat?`${c}22`:"#111827",border:`1px solid ${etfCategory===cat?c:"#1f2937"}`,color:etfCategory===cat?c:"#64748b",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{cat}</button>;
+        })}
+        <span style={{fontSize:10,color:"#374151",marginLeft:"auto",flexShrink:0}}>{filteredETFs.length} funds</span>
+      </div>)}
 
       {tab==="options"&&(
         <>
@@ -2500,6 +2771,7 @@ export default function App() {
           )}
 
           {tab==="stocks"&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>{filteredStocks.map(stock=>(<StockCard key={stock.ticker} stock={stock} onClick={()=>setSelected(selected?.ticker===stock.ticker?null:{type:"stock",...stock})} selected={selected?.ticker===stock.ticker}/>))}</div>)}
+          {tab==="etfs"&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>{filteredETFs.map(etf=>(<ETFCard key={etf.ticker} etf={etf} onClick={()=>setSelected(selected?.ticker===etf.ticker?null:{type:"etf",...etf})} selected={selected?.ticker===etf.ticker}/>))}</div>)}
 
           {tab==="indices"&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>{filteredIndices.map(idx=>(<IndexCard key={idx.symbol} idx={idx} data={indexData[idx.symbol]} onClick={()=>setSelected(selected?.symbol===idx.symbol?null:{type:"index",...idx})} selected={selected?.symbol===idx.symbol}/>))}</div>)}
 
@@ -2511,6 +2783,7 @@ export default function App() {
         {selected&&!(tab==="options"&&optMode==="chain")&&(
           <div style={{borderLeft:"1px solid #1e293b",overflowY:"auto",padding:12}}>
             {selected.type==="stock"&&<StockDetail stock={stockData[selected.ticker]||selected} onClose={()=>setSelected(null)}/>}
+            {selected.type==="etf"&&<ETFDetail etf={etfData[selected.ticker]||selected} onClose={()=>setSelected(null)}/>}
             {selected.type==="option"&&<ScreenerDetail opt={selected} onClose={()=>setSelected(null)}/>}
             {selected.type==="index"&&<IndexDetail idx={selected} data={indexData[selected.symbol]} onClose={()=>setSelected(null)}/>}
             {selected.type==="future"&&<FuturesDetail fut={selected} data={futuresData[selected.symbol]} onClose={()=>setSelected(null)}/>}
