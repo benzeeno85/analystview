@@ -433,19 +433,19 @@ function parseYahooChart(json) {
 }
 
 async function fetchYahoo(symbol) {
-  // 1) Our own backend proxy — no CORS, works on the deployed site, no key needed
+  // 1) Our own backend proxy — races Yahoo + Stooq server-side, no CORS, no key needed
   try {
     const res = await fetch(`/api/market-data?type=quote&symbol=${encodeURIComponent(symbol)}`,
-      { signal: AbortSignal.timeout(6000) });
+      { signal: AbortSignal.timeout(8000) });
     const ct = res.headers.get("content-type") || "";
     if (res.ok && ct.includes("application/json")) {
       const json = await res.json();
       return parseYahooChart(json);
     }
   } catch(_) {}
-  // 2) Direct Yahoo — works in some environments without CORS enforcement
+  // 2) Direct Yahoo — quick bonus attempt only, cheap to fail fast
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
-  const res = await fetch(url, { headers:{ Accept:"application/json" }, signal: AbortSignal.timeout(5000) });
+  const res = await fetch(url, { headers:{ Accept:"application/json" }, signal: AbortSignal.timeout(2500) });
   if (!res.ok) throw new Error("Yahoo fail");
   const json = await res.json();
   return parseYahooChart(json);
@@ -1589,6 +1589,8 @@ function ScreenerDetail({opt,onClose}) {
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
 
+      <LatestHeadlines symbol={opt.underlying} name={opt.name}/>
+
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
       </button>
@@ -1781,7 +1783,7 @@ function AnalystReportModal({subject, onClose}) {
     // Deterministic, timestamped, free — genuinely live facts, not model speculation.
     try {
       const res = await fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(q)}&name=${encodeURIComponent(name||q)}`,
-        { signal: AbortSignal.timeout(10000) });
+        { signal: AbortSignal.timeout(20000) });
       const ct = res.headers.get("content-type")||"";
       if (res.ok && ct.includes("application/json")) {
         const d = await res.json();
@@ -2041,11 +2043,13 @@ function timeAgo(iso) {
 function LatestHeadlines({symbol,name}) {
   const [items,setItems]=useState(null);
   const [status,setStatus]=useState("loading"); // loading | ok | empty | error
+  const [tick,setTick]=useState(0); // bump to force a manual retry
+
   useEffect(()=>{
     let cancelled=false;
     setStatus("loading"); setItems(null);
     fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name||symbol)}`,
-      { signal: AbortSignal.timeout(10000) })
+      { signal: AbortSignal.timeout(20000) })
       .then(res=>{
         const ct=res.headers.get("content-type")||"";
         if(!res.ok||!ct.includes("application/json")) throw new Error("bad response");
@@ -2058,7 +2062,7 @@ function LatestHeadlines({symbol,name}) {
       })
       .catch(()=>{ if(!cancelled) setStatus("error"); });
     return ()=>{ cancelled=true; };
-  },[symbol,name]);
+  },[symbol,name,tick]);
 
   if (status==="loading") return (
     <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10,color:"#64748b",fontSize:11}}>
@@ -2067,8 +2071,9 @@ function LatestHeadlines({symbol,name}) {
     </div>
   );
   if (status==="error"||status==="empty") return (
-    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10,color:"#64748b",fontSize:11}}>
-      No live headlines available right now for {symbol}.
+    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10,color:"#64748b",fontSize:11,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+      <span>{status==="error"?`Couldn't load headlines for ${symbol} (request failed or timed out).`:`No recent headlines found for ${symbol} from CNBC, BNN Bloomberg or Yahoo.`}</span>
+      <button onClick={()=>setTick(t=>t+1)} style={{flexShrink:0,background:"#0f172a",border:"1px solid #334155",color:"#94a3b8",borderRadius:5,padding:"3px 9px",cursor:"pointer",fontSize:10}}>↻ Retry</button>
     </div>
   );
   return (
@@ -2157,6 +2162,7 @@ function IndexDetail({idx,data,onClose}) {
         <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{idx.region}</span><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{idx.symbol}</span></div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{idx.name}</div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+      <LatestHeadlines symbol={idx.symbol} name={idx.name}/>
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
       </button>
@@ -2185,6 +2191,7 @@ function FuturesDetail({fut,data,onClose}) {
         <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{fut.symbol}</span><Badge label={consensus} size="lg"/></div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{fut.name} · <span style={{color:catColor}}>{fut.category}</span></div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+      <LatestHeadlines symbol={fut.symbol} name={fut.name}/>
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
       </button>

@@ -1,8 +1,8 @@
 // Vercel serverless function — multi-source live market data.
-// Sources, tried in order:
-//   QUOTES:  Yahoo Finance (2 hosts) -> Stooq (free CSV, datacenter-friendly, no key)
-//   OPTIONS: Yahoo Finance (2 hosts)
-//   NEWS:    Yahoo Finance search
+// QUOTES:  Yahoo (2 hosts, raced concurrently) + Stooq (all US/TSX tickers +
+//          curated indices/futures) run IN PARALLEL — whichever answers first wins.
+// OPTIONS: Yahoo Finance (2 hosts, raced concurrently).
+// NEWS:    Yahoo Finance search + CNBC + BNN Bloomberg, merged and deduped.
 // (The app itself also falls back to Alpha Vantage for real options chains client-side.)
 
 export const config = { maxDuration: 30 };
@@ -19,14 +19,23 @@ const STOOQ_MAP = {
 };
 
 async function tryYahoo(path) {
-  for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
-    try {
-      const r = await fetch(`https://${host}${path}`, { headers: { "User-Agent": UA, Accept: "application/json" } });
-      const d = await r.json().catch(() => null);
-      if (r.ok && d) return d;
-    } catch (_) {}
+  // Race both hosts concurrently (instead of one-after-another) — since Yahoo
+  // often just hangs rather than rejecting fast from datacenter IPs, running
+  // them in parallel with a single shared timeout roughly halves worst-case wait.
+  const attempt = async (host) => {
+    const r = await fetch(`https://${host}${path}`, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d) return d;
+    throw new Error(`${host} empty/failed`);
+  };
+  try {
+    return await Promise.any(["query1.finance.yahoo.com", "query2.finance.yahoo.com"].map(attempt));
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 // ── News: CNBC + BNN Bloomberg, alongside Yahoo ────────────────────────────
@@ -65,7 +74,7 @@ function parseRssItems(xml, sourceName, limit = 10) {
 async function fetchCnbcNews(query) {
   try {
     const q = encodeURIComponent(`site:cnbc.com ${query}`);
-    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`, { headers: { "User-Agent": UA } });
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
     if (!r.ok) return [];
     const xml = await r.text();
     return parseRssItems(xml, "CNBC", 8);
@@ -75,7 +84,7 @@ async function fetchCnbcNews(query) {
 async function fetchBnnBloombergNews(query) {
   try {
     const q = encodeURIComponent(`site:bnnbloomberg.ca ${query}`);
-    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-CA&gl=CA&ceid=CA:en`, { headers: { "User-Agent": UA } });
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-CA&gl=CA&ceid=CA:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
     if (!r.ok) return [];
     const xml = await r.text();
     return parseRssItems(xml, "BNN Bloomberg", 8);
@@ -83,11 +92,20 @@ async function fetchBnnBloombergNews(query) {
 }
 
 // Stooq daily-history CSV -> Yahoo chart-shaped response
+function resolveStooqSymbol(symbol) {
+  if (STOOQ_MAP[symbol]) return STOOQ_MAP[symbol];
+  // TSX tickers (e.g. "RY.TO") -> Stooq's Canadian convention "ry.ca"
+  if (/\.TO$/i.test(symbol)) return symbol.replace(/\.TO$/i, "").toLowerCase() + ".ca";
+  // Plain US tickers (AAPL, MSFT, TSLA...) -> Stooq's US convention "aapl.us"
+  if (/^[A-Z]{1,5}$/i.test(symbol)) return symbol.toLowerCase() + ".us";
+  return null; // unmapped index/futures symbols with no clean Stooq equivalent
+}
+
 async function tryStooq(symbol) {
-  const s = STOOQ_MAP[symbol];
+  const s = resolveStooqSymbol(symbol);
   if (!s) return null;
   try {
-    const r = await fetch(`https://stooq.com/q/d/l/?s=${encodeURIComponent(s)}&i=d`, { headers: { "User-Agent": UA } });
+    const r = await fetch(`https://stooq.com/q/d/l/?s=${encodeURIComponent(s)}&i=d`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(5000) });
     if (!r.ok) return null;
     const csv = await r.text();
     const rows = csv.trim().split("\n").filter(l => l && !l.startsWith("Date"));
@@ -121,9 +139,13 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=120");
 
   if (type === "quote") {
-    const y = await tryYahoo(`/v8/finance/chart/${sym}?interval=1d&range=2d`);
+    // Run Yahoo and Stooq concurrently — don't wait for Yahoo to fully fail
+    // before trying Stooq, since Yahoo is frequently unreachable from Vercel.
+    const [y, s] = await Promise.all([
+      tryYahoo(`/v8/finance/chart/${sym}?interval=1d&range=2d`),
+      tryStooq(symbol),
+    ]);
     if (y?.chart?.result?.[0]?.meta) return res.status(200).json(y);
-    const s = await tryStooq(symbol);
     if (s) return res.status(200).json(s);
     return res.status(502).json({ error: "quote_unavailable", message: `No source could provide a quote for ${symbol}` });
   }
