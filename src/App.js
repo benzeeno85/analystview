@@ -1777,19 +1777,19 @@ function AnalystReportModal({subject, onClose}) {
   const researchCurrentInfo = async (ticker, name, assetType) => {
     const q = assetType==="option" ? ticker.split(" ")[0] : ticker; // search the underlying, not the contract string
 
-    // ── Source 1: REAL live news headlines from Yahoo Finance via our own proxy ──
+    // ── Source 1: REAL live news headlines from Yahoo + CNBC + BNN Bloomberg ──
     // Deterministic, timestamped, free — genuinely live facts, not model speculation.
     try {
-      const res = await fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(q)}`,
-        { signal: AbortSignal.timeout(8000) });
+      const res = await fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(q)}&name=${encodeURIComponent(name||q)}`,
+        { signal: AbortSignal.timeout(10000) });
       const ct = res.headers.get("content-type")||"";
       if (res.ok && ct.includes("application/json")) {
         const d = await res.json();
-        const items = (d?.news||[]).filter(n=>n.title).slice(0,6);
+        const items = (d?.news||[]).filter(n=>n.title).slice(0,8);
         if (items.length >= 2) {
           const bullets = items.map(n=>{
-            const when = n.providerPublishTime ? new Date(n.providerPublishTime*1000).toISOString().slice(0,10) : "recent";
-            return `- [${when}] ${n.title}${n.publisher?` (${n.publisher})`:""}`;
+            const when = n.pubDate ? n.pubDate.slice(0,10) : "recent";
+            return `- [${when}] ${n.title}${n.source?` (${n.source})`:""}`;
           }).join("\n");
           return { bullets, grounded: true };
         }
@@ -2023,6 +2023,79 @@ Return ONLY valid minified JSON, no markdown, no backticks, no whitespace beyond
   );
 }
 
+// ─── LATEST HEADLINES — live, from CNBC / BNN Bloomberg / Yahoo Finance ───────
+const SOURCE_STYLE = {
+  "CNBC":          { bg:"#7f1d1d", fg:"#fca5a5" },
+  "BNN Bloomberg": { bg:"#1e3a5f", fg:"#93c5fd" },
+  "Yahoo Finance": { bg:"#3f2f0c", fg:"#fcd34d" },
+};
+function timeAgo(iso) {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diffMs/3600000);
+  if (h < 1) return "just now";
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h/24);
+  return `${d}d ago`;
+}
+function LatestHeadlines({symbol,name}) {
+  const [items,setItems]=useState(null);
+  const [status,setStatus]=useState("loading"); // loading | ok | empty | error
+  useEffect(()=>{
+    let cancelled=false;
+    setStatus("loading"); setItems(null);
+    fetch(`/api/market-data?type=news&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name||symbol)}`,
+      { signal: AbortSignal.timeout(10000) })
+      .then(res=>{
+        const ct=res.headers.get("content-type")||"";
+        if(!res.ok||!ct.includes("application/json")) throw new Error("bad response");
+        return res.json();
+      })
+      .then(d=>{
+        if(cancelled) return;
+        const news=(d?.news||[]).filter(n=>n.title).slice(0,6);
+        setItems(news); setStatus(news.length?"ok":"empty");
+      })
+      .catch(()=>{ if(!cancelled) setStatus("error"); });
+    return ()=>{ cancelled=true; };
+  },[symbol,name]);
+
+  if (status==="loading") return (
+    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10,color:"#64748b",fontSize:11}}>
+      <span style={{animation:"spin 1s linear infinite",display:"inline-block",marginRight:6}}>⏳</span>Loading latest headlines…
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+  if (status==="error"||status==="empty") return (
+    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10,color:"#64748b",fontSize:11}}>
+      No live headlines available right now for {symbol}.
+    </div>
+  );
+  return (
+    <div style={{background:"#1e293b",borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+      <div style={{fontSize:11,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>
+        📰 Latest Headlines · CNBC · BNN Bloomberg · Yahoo Finance
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {items.map((n,i)=>{
+          const st=SOURCE_STYLE[n.source]||{bg:"#334155",fg:"#94a3b8"};
+          return (
+            <a key={i} href={n.link} target="_blank" rel="noreferrer" style={{textDecoration:"none",display:"block"}}>
+              <div style={{background:"#0f172a",borderRadius:7,padding:"9px 11px",display:"flex",gap:8,alignItems:"flex-start"}}>
+                <span style={{flexShrink:0,fontSize:9,fontWeight:800,color:st.fg,background:st.bg,borderRadius:4,padding:"2px 6px",marginTop:1}}>{n.source}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11.5,color:"#e2e8f0",lineHeight:1.4}}>{n.title}</div>
+                  <div style={{fontSize:9,color:"#475569",marginTop:2}}>{timeAgo(n.pubDate)}</div>
+                </div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StockDetail({stock,onClose}) {
   const [showReport,setShowReport]=useState(false);
   const ratings=stock.ratings||[]; const consensus=stock.consensus||"Hold";
@@ -2034,6 +2107,8 @@ function StockDetail({stock,onClose}) {
         <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:"#f8fafc"}}>{stock.ticker}</span><Badge label={consensus} size="lg"/>{stock.source&&<SourcePill source={stock.source}/>}</div><div style={{color:"#94a3b8",fontSize:12,marginTop:3}}>{stock.name} · {stock.sector}</div></div>
         <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",borderRadius:6,padding:"6px 12px",fontSize:12}}>✕</button>
       </div>
+
+      <LatestHeadlines symbol={stock.ticker} name={stock.name}/>
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
       </button>

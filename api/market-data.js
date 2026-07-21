@@ -29,6 +29,59 @@ async function tryYahoo(path) {
   return null;
 }
 
+// ── News: CNBC + BNN Bloomberg, alongside Yahoo ────────────────────────────
+// CNBC: their own public RSS feeds (meant for syndication).
+// BNN Bloomberg: no public RSS was found, so we use Google News' site-filtered
+// search feed instead — a standard, publicly documented mechanism for pulling
+// a site's real, live headlines for a specific query without scraping.
+// Both return only { title, link, pubDate, source } — never article bodies.
+
+function parseRssItems(xml, sourceName, limit = 10) {
+  if (!xml) return [];
+  const clean = s => (s || "")
+    .replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g, "")
+    .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/<[^>]+>/g, "").trim();
+  const items = [];
+  const re = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = re.exec(xml)) && items.length < limit) {
+    const block = m[1];
+    const title = clean((block.match(/<title>([\s\S]*?)<\/title>/) || [])[1]);
+    let link = clean((block.match(/<link>([\s\S]*?)<\/link>/) || [])[1]);
+    const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
+    // Google News wraps the real source URL in a redirect; keep as-is, it still opens correctly
+    if (title) {
+      items.push({
+        title, link,
+        pubDate: pubDate ? new Date(pubDate).toISOString() : null,
+        source: sourceName,
+      });
+    }
+  }
+  return items;
+}
+
+async function fetchCnbcNews(query) {
+  try {
+    const q = encodeURIComponent(`site:cnbc.com ${query}`);
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`, { headers: { "User-Agent": UA } });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    return parseRssItems(xml, "CNBC", 8);
+  } catch (_) { return []; }
+}
+
+async function fetchBnnBloombergNews(query) {
+  try {
+    const q = encodeURIComponent(`site:bnnbloomberg.ca ${query}`);
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-CA&gl=CA&ceid=CA:en`, { headers: { "User-Agent": UA } });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    return parseRssItems(xml, "BNN Bloomberg", 8);
+  } catch (_) { return []; }
+}
+
 // Stooq daily-history CSV -> Yahoo chart-shaped response
 async function tryStooq(symbol) {
   const s = STOOQ_MAP[symbol];
@@ -82,9 +135,27 @@ export default async function handler(req, res) {
   }
 
   if (type === "news") {
-    const y = await tryYahoo(`/v1/finance/search?q=${sym}&quotesCount=0&newsCount=10`);
-    if (y?.news) return res.status(200).json(y);
-    return res.status(502).json({ error: "news_unavailable", message: "News source unreachable" });
+    const query = req.query.name || symbol; // company name searches better than raw ticker
+    const [yahooRaw, cnbc, bnn] = await Promise.all([
+      tryYahoo(`/v1/finance/search?q=${sym}&quotesCount=0&newsCount=10`),
+      fetchCnbcNews(query),
+      fetchBnnBloombergNews(query),
+    ]);
+    const yahooItems = (yahooRaw?.news || []).map(n => ({
+      title: n.title, link: n.link,
+      pubDate: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : null,
+      source: n.publisher || "Yahoo Finance",
+    }));
+    const merged = [...yahooItems, ...cnbc, ...bnn].filter(n => n.title);
+    // De-dup near-identical headlines (same story picked up by our search across sources)
+    const seen = new Set(); const deduped = [];
+    for (const n of merged) {
+      const k = n.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 50);
+      if (!seen.has(k)) { seen.add(k); deduped.push(n); }
+    }
+    deduped.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+    if (deduped.length) return res.status(200).json({ news: deduped.slice(0, 15) });
+    return res.status(502).json({ error: "news_unavailable", message: "No news source responded" });
   }
 
   return res.status(400).json({ error: "bad_request", message: "type must be 'quote', 'options' or 'news'" });
