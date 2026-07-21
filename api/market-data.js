@@ -1,9 +1,15 @@
 // Vercel serverless function — multi-source live market data.
-// QUOTES:  Yahoo (2 hosts, raced concurrently) + Stooq (all US/TSX tickers +
-//          curated indices/futures) run IN PARALLEL — whichever answers first wins.
+// QUOTES:  Yahoo (2 hosts, raced) + Stooq (all US/TSX tickers + curated
+//          indices/futures) + Twelve Data (optional key, 800 free calls/day)
+//          — all run IN PARALLEL, whichever answers first wins.
 // OPTIONS: Yahoo Finance (2 hosts, raced concurrently).
 // NEWS:    Yahoo Finance search + CNBC + BNN Bloomberg, merged and deduped.
 // (The app itself also falls back to Alpha Vantage for real options chains client-side.)
+//
+// OPTIONAL — widen quote coverage further with a free Twelve Data key:
+//   1. Sign up free at https://twelvedata.com (no credit card, 800 calls/day)
+//   2. Dashboard -> copy your API Key
+//   3. Vercel -> Settings -> Environment Variables -> add TWELVE_DATA_KEY -> redeploy
 
 export const config = { maxDuration: 30 };
 
@@ -18,87 +24,11 @@ const STOOQ_MAP = {
   "ZC=F":"zc.f", "ZW=F":"zw.f", "ZS=F":"zs.f", "KC=F":"kc.f", "SB=F":"sb.f", "CC=F":"cc.f",
 };
 
-async function tryYahoo(path) {
-  // Race both hosts concurrently (instead of one-after-another) — since Yahoo
-  // often just hangs rather than rejecting fast from datacenter IPs, running
-  // them in parallel with a single shared timeout roughly halves worst-case wait.
-  const attempt = async (host) => {
-    const r = await fetch(`https://${host}${path}`, {
-      headers: { "User-Agent": UA, Accept: "application/json" },
-      signal: AbortSignal.timeout(5000),
-    });
-    const d = await r.json().catch(() => null);
-    if (r.ok && d) return d;
-    throw new Error(`${host} empty/failed`);
-  };
-  try {
-    return await Promise.any(["query1.finance.yahoo.com", "query2.finance.yahoo.com"].map(attempt));
-  } catch (_) {
-    return null;
-  }
-}
-
-// ── News: CNBC + BNN Bloomberg, alongside Yahoo ────────────────────────────
-// CNBC: their own public RSS feeds (meant for syndication).
-// BNN Bloomberg: no public RSS was found, so we use Google News' site-filtered
-// search feed instead — a standard, publicly documented mechanism for pulling
-// a site's real, live headlines for a specific query without scraping.
-// Both return only { title, link, pubDate, source } — never article bodies.
-
-function parseRssItems(xml, sourceName, limit = 10) {
-  if (!xml) return [];
-  const clean = s => (s || "")
-    .replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g, "")
-    .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/<[^>]+>/g, "").trim();
-  const items = [];
-  const re = /<item>([\s\S]*?)<\/item>/g;
-  let m;
-  while ((m = re.exec(xml)) && items.length < limit) {
-    const block = m[1];
-    const title = clean((block.match(/<title>([\s\S]*?)<\/title>/) || [])[1]);
-    let link = clean((block.match(/<link>([\s\S]*?)<\/link>/) || [])[1]);
-    const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
-    // Google News wraps the real source URL in a redirect; keep as-is, it still opens correctly
-    if (title) {
-      items.push({
-        title, link,
-        pubDate: pubDate ? new Date(pubDate).toISOString() : null,
-        source: sourceName,
-      });
-    }
-  }
-  return items;
-}
-
-async function fetchCnbcNews(query) {
-  try {
-    const q = encodeURIComponent(`site:cnbc.com ${query}`);
-    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
-    if (!r.ok) return [];
-    const xml = await r.text();
-    return parseRssItems(xml, "CNBC", 8);
-  } catch (_) { return []; }
-}
-
-async function fetchBnnBloombergNews(query) {
-  try {
-    const q = encodeURIComponent(`site:bnnbloomberg.ca ${query}`);
-    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-CA&gl=CA&ceid=CA:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
-    if (!r.ok) return [];
-    const xml = await r.text();
-    return parseRssItems(xml, "BNN Bloomberg", 8);
-  } catch (_) { return []; }
-}
-
-// Stooq daily-history CSV -> Yahoo chart-shaped response
 function resolveStooqSymbol(symbol) {
   if (STOOQ_MAP[symbol]) return STOOQ_MAP[symbol];
-  // TSX tickers (e.g. "RY.TO") -> Stooq's Canadian convention "ry.ca"
   if (/\.TO$/i.test(symbol)) return symbol.replace(/\.TO$/i, "").toLowerCase() + ".ca";
-  // Plain US tickers (AAPL, MSFT, TSLA...) -> Stooq's US convention "aapl.us"
   if (/^[A-Z]{1,5}$/i.test(symbol)) return symbol.toLowerCase() + ".us";
-  return null; // unmapped index/futures symbols with no clean Stooq equivalent
+  return null;
 }
 
 async function tryStooq(symbol) {
@@ -127,6 +57,95 @@ async function tryStooq(symbol) {
   } catch (_) { return null; }
 }
 
+// Twelve Data — optional, genuinely free (800 calls/day, no credit card).
+// Best for plain stock tickers; skipped automatically for index/futures symbols
+// it doesn't recognise (^GSPC, GC=F, etc.) since those fall back to Stooq/Yahoo.
+async function tryTwelveData(symbol) {
+  const key = process.env.TWELVE_DATA_KEY;
+  if (!key) return null;
+  if (!/^[A-Z]{1,5}(\.TO)?$/i.test(symbol)) return null; // only plain US/TSX tickers
+  try {
+    const r = await fetch(
+      `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol.replace(".TO",""))}&apikey=${key}`,
+      { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(5000) }
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.status === "error" || !d.close) return null;
+    const price = parseFloat(d.close), prevClose = parseFloat(d.previous_close);
+    if (!isFinite(price)) return null;
+    return {
+      chart: { result: [{ meta: {
+        regularMarketPrice: price, previousClose: isFinite(prevClose) ? prevClose : price,
+        regularMarketDayHigh: parseFloat(d.high) || undefined,
+        regularMarketDayLow:  parseFloat(d.low) || undefined,
+        regularMarketOpen:    parseFloat(d.open) || undefined,
+        regularMarketVolume:  parseFloat(d.volume) || undefined,
+        dataSource: "Twelve Data",
+      } }] },
+    };
+  } catch (_) { return null; }
+}
+
+async function tryYahoo(path) {
+  const attempt = async (host) => {
+    const r = await fetch(`https://${host}${path}`, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d) return d;
+    throw new Error(`${host} empty/failed`);
+  };
+  try {
+    return await Promise.any(["query1.finance.yahoo.com", "query2.finance.yahoo.com"].map(attempt));
+  } catch (_) {
+    return null;
+  }
+}
+
+// ── News: CNBC + BNN Bloomberg, alongside Yahoo ────────────────────────────
+function parseRssItems(xml, sourceName, limit = 10) {
+  if (!xml) return [];
+  const clean = s => (s || "")
+    .replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g, "")
+    .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/<[^>]+>/g, "").trim();
+  const items = [];
+  const re = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = re.exec(xml)) && items.length < limit) {
+    const block = m[1];
+    const title = clean((block.match(/<title>([\s\S]*?)<\/title>/) || [])[1]);
+    let link = clean((block.match(/<link>([\s\S]*?)<\/link>/) || [])[1]);
+    const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
+    if (title) {
+      items.push({ title, link, pubDate: pubDate ? new Date(pubDate).toISOString() : null, source: sourceName });
+    }
+  }
+  return items;
+}
+
+async function fetchCnbcNews(query) {
+  try {
+    const q = encodeURIComponent(`site:cnbc.com ${query}`);
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    return parseRssItems(xml, "CNBC", 8);
+  } catch (_) { return []; }
+}
+
+async function fetchBnnBloombergNews(query) {
+  try {
+    const q = encodeURIComponent(`site:bnnbloomberg.ca ${query}`);
+    const r = await fetch(`https://news.google.com/rss/search?q=${q}&hl=en-CA&gl=CA&ceid=CA:en`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(7000) });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    return parseRssItems(xml, "BNN Bloomberg", 8);
+  } catch (_) { return []; }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -139,13 +158,14 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=120");
 
   if (type === "quote") {
-    // Run Yahoo and Stooq concurrently — don't wait for Yahoo to fully fail
-    // before trying Stooq, since Yahoo is frequently unreachable from Vercel.
-    const [y, s] = await Promise.all([
+    // Race Yahoo, Stooq, and Twelve Data concurrently — whichever answers first wins.
+    const [y, s, t] = await Promise.all([
       tryYahoo(`/v8/finance/chart/${sym}?interval=1d&range=2d`),
       tryStooq(symbol),
+      tryTwelveData(symbol),
     ]);
     if (y?.chart?.result?.[0]?.meta) return res.status(200).json(y);
+    if (t) return res.status(200).json(t);
     if (s) return res.status(200).json(s);
     return res.status(502).json({ error: "quote_unavailable", message: `No source could provide a quote for ${symbol}` });
   }
@@ -157,7 +177,7 @@ export default async function handler(req, res) {
   }
 
   if (type === "news") {
-    const query = req.query.name || symbol; // company name searches better than raw ticker
+    const query = req.query.name || symbol;
     const [yahooRaw, cnbc, bnn] = await Promise.all([
       tryYahoo(`/v1/finance/search?q=${sym}&quotesCount=0&newsCount=10`),
       fetchCnbcNews(query),
@@ -169,7 +189,6 @@ export default async function handler(req, res) {
       source: n.publisher || "Yahoo Finance",
     }));
     const merged = [...yahooItems, ...cnbc, ...bnn].filter(n => n.title);
-    // De-dup near-identical headlines (same story picked up by our search across sources)
     const seen = new Set(); const deduped = [];
     for (const n of merged) {
       const k = n.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 50);
