@@ -1116,6 +1116,9 @@ function LiveChainView() {
         {/* Payoff Chart */}
         <PayoffChart strike={o.strike} premium={premium} type={isCall?"CALL":"PUT"} spotPrice={spotPrice||o.strike}/>
 
+        <LatestHeadlines symbol={ticker} name={tickerInfo?.name||ticker}/>
+        <BrokerLinks ticker={ticker}/>
+
         {/* Education */}
         <div style={{background:"#0c1a2e",border:"1px solid #1e3a5f",borderRadius:8,padding:12,fontSize:10,color:"#64748b",lineHeight:1.8,marginTop:10}}>
           <div style={{color:"#3b82f6",fontWeight:700,marginBottom:4}}>📚 Quick Guide</div>
@@ -1495,6 +1498,33 @@ function VolOIBar({vol,oi}) {
   );
 }
 
+// ─── TRADE THIS ON — quick launch to real brokers to execute ─────────────────
+// Robinhood, Webull, IBKR, Questrade, Schwab all display the SAME underlying
+// exchange market data (NBBO) — there's no separate "per-broker" price to blend.
+// These are honest one-tap launch links, not data-feed integrations (none of
+// these platforms offer a free, key-based public data API — see the app FAQ).
+const BROKERS = [
+  { name:"Robinhood",    color:"#00C805", url:(t)=>`https://robinhood.com/stocks/${t}` },
+  { name:"Webull",       color:"#1e6fff", url:()=>`https://www.webull.com/quote` },
+  { name:"Schwab",       color:"#00a0df", url:()=>`https://www.schwab.com` },
+  { name:"IBKR",         color:"#d81f2a", url:()=>`https://www.interactivebrokers.com/en/trading/symbol.php` },
+  { name:"Questrade",    color:"#f68a1f", url:()=>`https://www.questrade.com` },
+];
+function BrokerLinks({ticker}) {
+  return (
+    <div style={{background:"#1e293b",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+      <div style={{fontSize:10,color:"#64748b",marginBottom:7}}>🔗 Trade this on — same underlying exchange data across every broker</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {BROKERS.map(b=>(
+          <a key={b.name} href={b.url(ticker)} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>
+            <span style={{display:"inline-block",fontSize:10,fontWeight:700,color:b.color,background:`${b.color}18`,border:`1px solid ${b.color}44`,borderRadius:5,padding:"5px 10px"}}>{b.name} ↗</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ScreenerDetail({opt,onClose}) {
   const [showReport,setShowReport]=useState(false);
   const [live,setLive]=useState(null);          // live-refreshed contract data, if found
@@ -1590,6 +1620,7 @@ function ScreenerDetail({opt,onClose}) {
       </div>
 
       <LatestHeadlines symbol={opt.underlying} name={opt.name}/>
+      <BrokerLinks ticker={opt.underlying}/>
 
       <button onClick={()=>setShowReport(true)} style={{width:"100%",marginBottom:14,padding:"11px 16px",background:"linear-gradient(135deg,#1d4ed8,#0c2040)",border:"1px solid #3b82f6",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <span>📊</span> Generate Full Analyst Report with Conviction Evidence
