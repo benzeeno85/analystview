@@ -153,7 +153,20 @@ function SectorCard({ sectors }) {
         <span style={{ fontWeight: 800, fontSize: 13, color: "#e2e8f0" }}>Sector Rotation</span>
         <span style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>vs SPY</span>
       </div>
-      <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>{sectors.leadership_type}</div>
+      <div style={{ fontSize: 11, color: sectors.complete === false ? "#f59e0b" : "#9ca3af", marginBottom: 4 }}>
+        {sectors.leadership_type}
+      </div>
+      {sectors.complete === false && (
+        <div style={{ fontSize: 10, color: "#f59e0b", background: "#f59e0b18",
+                      border: "1px solid #f59e0b44", borderRadius: 4,
+                      padding: "5px 8px", marginBottom: 8, lineHeight: 1.45 }}>
+          Showing {sectors.sectors_covered} of {sectors.sectors_total} sectors
+          {sectors.missing_sectors?.length ? ` — no data for ${sectors.missing_sectors.join(", ")}` : ""}.
+          Rankings below are computed on a partial set and may shift once the
+          missing feeds return. Re-run the data pull before relying on this.
+        </div>
+      )}
+      {sectors.complete !== false && <div style={{ height: 6 }} />}
 
       {sectors.ranked.map(s => {
         const pos = s.score >= 0;
