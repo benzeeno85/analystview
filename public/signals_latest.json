@@ -1,0 +1,451 @@
+{
+  "generated_at_utc": "2026-08-11T13:23:37+00:00",
+  "data_freshness_notes": {
+    "cot": "Tuesday snapshot, released Friday 15:30 ET \u2014 up to 3 days stale",
+    "prices_vix_sectors": "daily close"
+  },
+  "whale_positioning": {
+    "GOLD": {
+      "contract": "Gold (COMEX)",
+      "categories": {
+        "managed_money": {
+          "available": true,
+          "category": "managed_money",
+          "report_date": "2026-08-04",
+          "net_position": 130766.0,
+          "net_pct_open_interest": 35.19,
+          "wow_change": 10971,
+          "zscore_3y": 0.09,
+          "percentile_3y": 53.8,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        },
+        "producer_merchant": {
+          "available": true,
+          "category": "producer_merchant",
+          "report_date": "2026-08-04",
+          "net_position": -18856.0,
+          "net_pct_open_interest": -5.07,
+          "wow_change": 1693,
+          "zscore_3y": 1.47,
+          "percentile_3y": 93.6,
+          "reading": "stretched long",
+          "four_week_trend": "flat"
+        },
+        "swap_dealer": {
+          "available": true,
+          "category": "swap_dealer",
+          "report_date": "2026-08-04",
+          "net_position": -207635.0,
+          "net_pct_open_interest": -55.88,
+          "wow_change": -15875,
+          "zscore_3y": -0.4,
+          "percentile_3y": 37.8,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        }
+      }
+    },
+    "WTI_CRUDE": {
+      "contract": "WTI Crude (NYMEX)",
+      "categories": {
+        "managed_money": {
+          "available": true,
+          "category": "managed_money",
+          "report_date": "2026-08-04",
+          "net_position": 86958.0,
+          "net_pct_open_interest": 4.61,
+          "wow_change": -5985,
+          "zscore_3y": -0.4,
+          "percentile_3y": 33.3,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        },
+        "producer_merchant": {
+          "available": true,
+          "category": "producer_merchant",
+          "report_date": "2026-08-04",
+          "net_position": 334920.0,
+          "net_pct_open_interest": 17.75,
+          "wow_change": -16870,
+          "zscore_3y": 1.37,
+          "percentile_3y": 91.0,
+          "reading": "stretched long",
+          "four_week_trend": "adding shorts / liquidating longs"
+        },
+        "swap_dealer": {
+          "available": true,
+          "category": "swap_dealer",
+          "report_date": "2026-08-04",
+          "net_position": -488695.0,
+          "net_pct_open_interest": -25.9,
+          "wow_change": 21917,
+          "zscore_3y": -1.14,
+          "percentile_3y": 17.9,
+          "reading": "stretched short",
+          "four_week_trend": "flat"
+        }
+      }
+    },
+    "SILVER": {
+      "contract": "Silver (COMEX)",
+      "categories": {
+        "managed_money": {
+          "available": true,
+          "category": "managed_money",
+          "report_date": "2026-08-04",
+          "net_position": 11974.0,
+          "net_pct_open_interest": 10.69,
+          "wow_change": 2792,
+          "zscore_3y": -0.77,
+          "percentile_3y": 29.5,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        },
+        "producer_merchant": {
+          "available": true,
+          "category": "producer_merchant",
+          "report_date": "2026-08-04",
+          "net_position": -13080.0,
+          "net_pct_open_interest": -11.68,
+          "wow_change": -51,
+          "zscore_3y": 2.08,
+          "percentile_3y": 96.8,
+          "reading": "extreme long \u2014 crowded",
+          "four_week_trend": "flat"
+        },
+        "swap_dealer": {
+          "available": true,
+          "category": "swap_dealer",
+          "report_date": "2026-08-04",
+          "net_position": -27342.0,
+          "net_pct_open_interest": -24.41,
+          "wow_change": -1562,
+          "zscore_3y": 0.05,
+          "percentile_3y": 57.7,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        }
+      }
+    },
+    "COPPER": {
+      "contract": "Copper (COMEX)",
+      "categories": {
+        "managed_money": {
+          "available": true,
+          "category": "managed_money",
+          "report_date": "2026-08-04",
+          "net_position": 75758.0,
+          "net_pct_open_interest": 26.18,
+          "wow_change": 10750,
+          "zscore_3y": 1.65,
+          "percentile_3y": 99.4,
+          "reading": "stretched long",
+          "four_week_trend": "accumulating longs"
+        },
+        "producer_merchant": {
+          "available": true,
+          "category": "producer_merchant",
+          "report_date": "2026-08-04",
+          "net_position": -92844.0,
+          "net_pct_open_interest": -32.08,
+          "wow_change": -7565,
+          "zscore_3y": -1.31,
+          "percentile_3y": 9.6,
+          "reading": "stretched short",
+          "four_week_trend": "flat"
+        },
+        "swap_dealer": {
+          "available": true,
+          "category": "swap_dealer",
+          "report_date": "2026-08-04",
+          "net_position": 6675.0,
+          "net_pct_open_interest": 2.31,
+          "wow_change": -2443,
+          "zscore_3y": -1.54,
+          "percentile_3y": 4.5,
+          "reading": "stretched short",
+          "four_week_trend": "adding shorts / liquidating longs"
+        }
+      }
+    },
+    "ES_SP500": {
+      "contract": "E-mini S&P 500",
+      "categories": {
+        "leveraged_funds": {
+          "available": true,
+          "category": "leveraged_funds",
+          "report_date": "2026-08-04",
+          "net_position": -329999.0,
+          "net_pct_open_interest": -15.59,
+          "wow_change": -32523,
+          "zscore_3y": 0.16,
+          "percentile_3y": 55.8,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        },
+        "asset_manager": {
+          "available": true,
+          "category": "asset_manager",
+          "report_date": "2026-08-04",
+          "net_position": 937033.0,
+          "net_pct_open_interest": 44.28,
+          "wow_change": -7737,
+          "zscore_3y": 0.24,
+          "percentile_3y": 55.8,
+          "reading": "neutral",
+          "four_week_trend": "flat"
+        }
+      }
+    },
+    "DXY": {
+      "contract": "US Dollar Index",
+      "categories": {
+        "leveraged_funds": {
+          "available": true,
+          "category": "leveraged_funds",
+          "report_date": "2026-08-04",
+          "net_position": 3849.0,
+          "net_pct_open_interest": 7.38,
+          "wow_change": 5450,
+          "zscore_3y": 0.63,
+          "percentile_3y": 78.8,
+          "reading": "neutral",
+          "four_week_trend": "accumulating longs"
+        },
+        "asset_manager": {
+          "available": true,
+          "category": "asset_manager",
+          "report_date": "2026-08-04",
+          "net_position": 18095.0,
+          "net_pct_open_interest": 34.7,
+          "wow_change": -3517,
+          "zscore_3y": 1.18,
+          "percentile_3y": 87.8,
+          "reading": "stretched long",
+          "four_week_trend": "flat"
+        }
+      }
+    }
+  },
+  "sectors": {
+    "as_of": "2026-08-11",
+    "ranked": [
+      {
+        "ticker": "XLV",
+        "sector": "Health Care",
+        "rs_21d_pct": 3.49,
+        "rs_63d_pct": 10.48,
+        "rs_126d_pct": -2.6,
+        "rs_52w_percentile": 55.2,
+        "score": 4.37,
+        "rank": 1
+      },
+      {
+        "ticker": "XLK",
+        "sector": "Technology",
+        "rs_21d_pct": -1.31,
+        "rs_63d_pct": 1.41,
+        "rs_126d_pct": 16.69,
+        "rs_52w_percentile": 82.9,
+        "score": 3.11,
+        "rank": 2
+      },
+      {
+        "ticker": "XLE",
+        "sector": "Energy",
+        "rs_21d_pct": 2.77,
+        "rs_63d_pct": 0.28,
+        "rs_126d_pct": 1.41,
+        "rs_52w_percentile": 70.2,
+        "score": 1.75,
+        "rank": 3
+      },
+      {
+        "ticker": "XLF",
+        "sector": "Financials",
+        "rs_21d_pct": 0.08,
+        "rs_63d_pct": 7.12,
+        "rs_126d_pct": -3.02,
+        "rs_52w_percentile": 30.6,
+        "score": 1.57,
+        "rank": 4
+      },
+      {
+        "ticker": "XLI",
+        "sector": "Industrials",
+        "rs_21d_pct": -0.51,
+        "rs_63d_pct": 1.09,
+        "rs_126d_pct": -4.97,
+        "rs_52w_percentile": 57.1,
+        "score": -0.92,
+        "rank": 5
+      },
+      {
+        "ticker": "XLB",
+        "sector": "Materials",
+        "rs_21d_pct": 2.14,
+        "rs_63d_pct": -2.49,
+        "rs_126d_pct": -9.75,
+        "rs_52w_percentile": 47.2,
+        "score": -1.63,
+        "rank": 6
+      },
+      {
+        "ticker": "XLY",
+        "sector": "Cons. Discretionary",
+        "rs_21d_pct": 0.42,
+        "rs_63d_pct": -3.45,
+        "rs_126d_pct": -9.57,
+        "rs_52w_percentile": 6.3,
+        "score": -2.74,
+        "rank": 7
+      },
+      {
+        "ticker": "XLP",
+        "sector": "Cons. Staples",
+        "rs_21d_pct": -0.96,
+        "rs_63d_pct": -3.51,
+        "rs_126d_pct": -12.09,
+        "rs_52w_percentile": 2.4,
+        "score": -3.95,
+        "rank": 8
+      },
+      {
+        "ticker": "XLRE",
+        "sector": "Real Estate",
+        "rs_21d_pct": -2.92,
+        "rs_63d_pct": -4.31,
+        "rs_126d_pct": -6.26,
+        "rs_52w_percentile": 1.2,
+        "score": -4.0,
+        "rank": 9
+      },
+      {
+        "ticker": "XLC",
+        "sector": "Communication Svcs",
+        "rs_21d_pct": -2.41,
+        "rs_63d_pct": -7.83,
+        "rs_126d_pct": -14.8,
+        "rs_52w_percentile": 3.6,
+        "score": -6.51,
+        "rank": 10
+      },
+      {
+        "ticker": "XLU",
+        "sector": "Utilities",
+        "rs_21d_pct": -8.19,
+        "rs_63d_pct": -8.51,
+        "rs_126d_pct": -11.93,
+        "rs_52w_percentile": 0.0,
+        "score": -9.03,
+        "rank": 11
+      }
+    ],
+    "hot": [
+      {
+        "ticker": "XLV",
+        "sector": "Health Care",
+        "rs_21d_pct": 3.49,
+        "rs_63d_pct": 10.48,
+        "rs_126d_pct": -2.6,
+        "rs_52w_percentile": 55.2,
+        "score": 4.37,
+        "rank": 1
+      },
+      {
+        "ticker": "XLK",
+        "sector": "Technology",
+        "rs_21d_pct": -1.31,
+        "rs_63d_pct": 1.41,
+        "rs_126d_pct": 16.69,
+        "rs_52w_percentile": 82.9,
+        "score": 3.11,
+        "rank": 2
+      },
+      {
+        "ticker": "XLE",
+        "sector": "Energy",
+        "rs_21d_pct": 2.77,
+        "rs_63d_pct": 0.28,
+        "rs_126d_pct": 1.41,
+        "rs_52w_percentile": 70.2,
+        "score": 1.75,
+        "rank": 3
+      }
+    ],
+    "cold": [
+      {
+        "ticker": "XLU",
+        "sector": "Utilities",
+        "rs_21d_pct": -8.19,
+        "rs_63d_pct": -8.51,
+        "rs_126d_pct": -11.93,
+        "rs_52w_percentile": 0.0,
+        "score": -9.03,
+        "rank": 11
+      },
+      {
+        "ticker": "XLC",
+        "sector": "Communication Svcs",
+        "rs_21d_pct": -2.41,
+        "rs_63d_pct": -7.83,
+        "rs_126d_pct": -14.8,
+        "rs_52w_percentile": 3.6,
+        "score": -6.51,
+        "rank": 10
+      },
+      {
+        "ticker": "XLRE",
+        "sector": "Real Estate",
+        "rs_21d_pct": -2.92,
+        "rs_63d_pct": -4.31,
+        "rs_126d_pct": -6.26,
+        "rs_52w_percentile": 1.2,
+        "score": -4.0,
+        "rank": 9
+      }
+    ],
+    "leadership_type": "mixed / rotational \u2014 no clear regime"
+  },
+  "macro": {
+    "GLD": {
+      "last": 402.54,
+      "chg_21d_pct": 8.17
+    },
+    "GDX": {
+      "last": 90.49,
+      "chg_21d_pct": 20.85
+    },
+    "USO": {
+      "last": 125.92,
+      "chg_21d_pct": 4.78
+    },
+    "DXY": {
+      "last": 99.81,
+      "chg_21d_pct": -1.12
+    }
+  },
+  "volatility": {
+    "vix": 15.53,
+    "vix_52w_percentile": 17.1,
+    "vix_20d_mean": 17.03,
+    "vix_1w_change_pct": -5.9,
+    "vix_vix3m_ratio": 0.756,
+    "term_structure": "steep contango \u2014 complacency, thin hedges",
+    "term_structure_flipped_this_week": false,
+    "vvix": 92.5,
+    "tail_hedging_bid": false,
+    "regime": "COMPLACENCY \u2014 cheap hedges, poor risk/reward for fresh longs"
+  },
+  "data_quality": {
+    "cot_GOLD": "ok",
+    "cot_WTI_CRUDE": "ok",
+    "cot_SILVER": "ok",
+    "cot_COPPER": "ok",
+    "cot_ES_SP500": "ok",
+    "cot_DXY": "ok",
+    "prices": "ok",
+    "vix": "ok"
+  }
+}

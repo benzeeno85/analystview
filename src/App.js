@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import MarketIntelTab from "./MarketIntelTab";
 
 const API_KEYS = { finnhub: "", alphavantage: "", polygon: "", fmp: "" };
 
@@ -2683,7 +2684,7 @@ export default function App() {
   const futCategories=["All",...new Set(FUTURES.map(f=>f.category))];
   const filteredFutures=FUTURES.filter(f=>{ const q=search.toLowerCase(); return(!q||f.name.toLowerCase().includes(q)||f.symbol.toLowerCase().includes(q))&&(futFilter==="All"||f.category===futFilter); });
   const filteredIndices=INDICES.filter(i=>{ const q=search.toLowerCase(); return !q||i.symbol.toLowerCase().includes(q)||i.name.toLowerCase().includes(q); });
-  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"etfs",label:"🧺 ETFs"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"}];
+  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"etfs",label:"🧺 ETFs"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"},{id:"intel",label:"🐋 Intel"}];
 
   return (
     <div style={{minHeight:"100vh",background:"#060e1a",color:"#e2e8f0",fontFamily:"'Inter',-apple-system,sans-serif",display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -2746,6 +2747,9 @@ export default function App() {
       )}
 
       {tab==="futures"&&(<div style={{background:"#080f1c",borderBottom:"1px solid #111827",padding:"0 16px",display:"flex",flexShrink:0,overflowX:"auto"}}>{futCategories.map(cat=>(<button key={cat} onClick={()=>{setFutFilter(cat);setSelected(null);}} style={{background:"none",border:"none",cursor:"pointer",padding:"9px 12px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",color:futFilter===cat?(CAT_COLOR[cat]||"#60a5fa"):"#64748b",borderBottom:futFilter===cat?`2px solid ${CAT_COLOR[cat]||"#3b82f6"}`:"2px solid transparent"}}>{cat}</button>))}</div>)}
+
+
+      {tab==="intel"&&<MarketIntelTab/>}
 
       {/* Search */}
       {!(tab==="options"&&optMode==="chain")&&(
