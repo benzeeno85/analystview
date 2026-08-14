@@ -192,8 +192,149 @@ function SectorCard({ sectors }) {
   );
 }
 
-export default function MarketIntelTab({ dataUrl = "/signals_latest.json" }) {
+
+/* ---------------------------------------------------------------
+   Crypto positioning. There is no COT for crypto — no regulator
+   compels disclosure. Funding rate is the honest analogue: perpetual
+   futures are tethered to spot by a payment between longs and shorts
+   every 8 hours, so positive funding means the crowd is long AND
+   paying to stay there.
+   --------------------------------------------------------------- */
+const FUNDING_HOT = 50, FUNDING_EXTREME = 100, FUNDING_NEG = -10;
+
+const fundingColor = v =>
+  v >= FUNDING_EXTREME ? "#ef4444" :
+  v >= FUNDING_HOT ? "#f59e0b" :
+  v <= FUNDING_NEG ? "#3b82f6" : "#22c55e";
+
+function FundingBar({ value }) {
+  // -50 .. +150 annualised maps across the bar
+  const lo = -50, hi = 150;
+  const pct = Math.max(0, Math.min(100, ((value - lo) / (hi - lo)) * 100));
+  const zero = ((0 - lo) / (hi - lo)) * 100;
+  const hot = ((FUNDING_HOT - lo) / (hi - lo)) * 100;
+
+  return (
+    <div style={{ position: "relative", height: 6, background: "#1f2937",
+                  borderRadius: 3, margin: "5px 0 3px" }}>
+      <div style={{ position: "absolute", left: `${hot}%`, right: 0, top: 0, bottom: 0,
+                    background: "#ef4444", opacity: 0.15, borderRadius: "0 3px 3px 0" }} />
+      <div style={{ position: "absolute", left: `${zero}%`, top: -2, width: 1, height: 10,
+                    background: "#64748b" }} />
+      <div style={{ position: "absolute", left: `${pct}%`, top: -3, width: 8, height: 12,
+                    marginLeft: -4, borderRadius: 2, background: fundingColor(value) }} />
+    </div>
+  );
+}
+
+function CryptoCard({ sym, e }) {
+  const f = e.funding || {};
+  const oi = e.open_interest || {};
+  const p = e.positioning || {};
+  const ann = f.mean_7d_annualised_pct;
+  const name = sym.replace("USDT", "");
+
+  // retail more long than the top-trader cohort is the divergence worth seeing
+  const gap = (p.retail_ratio && p.top_trader_ratio)
+    ? p.retail_ratio - p.top_trader_ratio : null;
+
+  return (
+    <div style={{ background: "#111827", border: "1.5px solid #1f2937",
+                  borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 13, color: "#e2e8f0" }}>
+          {name}
+        </span>
+        {e.last_price != null && (
+          <span style={{ fontFamily: "monospace", fontSize: 11, color: "#9ca3af" }}>
+            ${e.last_price >= 100 ? e.last_price.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                                  : e.last_price.toFixed(2)}
+            <span style={{ color: (e.price_change_7d_pct ?? 0) >= 0 ? "#22c55e" : "#ef4444",
+                           marginLeft: 6 }}>
+              {(e.price_change_7d_pct ?? 0) >= 0 ? "+" : ""}{e.price_change_7d_pct}%
+            </span>
+          </span>
+        )}
+      </div>
+
+      {ann != null && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+                        fontSize: 8.5, color: "#475569", fontFamily: "monospace",
+                        letterSpacing: 0.6 }}>
+            <span>FUNDING 7D AVG (ANNUALISED)</span>
+            <span style={{ color: fundingColor(ann) }}>{ann >= 0 ? "+" : ""}{ann}%</span>
+          </div>
+          <FundingBar value={ann} />
+          <div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>
+            {f.percentile_4m != null ? `${f.percentile_4m}th pctile · ` : ""}
+            {f.days_same_sign != null ? `${f.days_same_sign}d same sign` : ""}
+          </div>
+        </div>
+      )}
+
+      {(p.retail_ratio || oi.change_7d_pct != null) && (
+        <div style={{ display: "flex", gap: 16, marginTop: 9, flexWrap: "wrap" }}>
+          {oi.change_7d_pct != null && (
+            <Stat label="OPEN INT 7D" value={`${oi.change_7d_pct >= 0 ? "+" : ""}${oi.change_7d_pct}%`} />
+          )}
+          {p.retail_ratio != null && <Stat label="RETAIL L/S" value={p.retail_ratio} />}
+          {p.top_trader_ratio != null && <Stat label="TOP TRADERS" value={p.top_trader_ratio} />}
+        </div>
+      )}
+
+      {gap != null && gap > 0.5 && (
+        <div style={{ marginTop: 8, fontSize: 10.5, color: "#f59e0b" }}>
+          Retail {gap.toFixed(2)} more long than top traders.
+        </div>
+      )}
+
+      {f.state && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "#9ca3af", lineHeight: 1.45 }}>
+          {f.state}
+        </div>
+      )}
+      {oi.interpretation && oi.interpretation !== "no clear OI/price divergence" && (
+        <div style={{ marginTop: 4, fontSize: 10.5, color: "#64748b", lineHeight: 1.45 }}>
+          {oi.interpretation}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CryptoSection({ data }) {
+  if (!data?.symbols || !Object.keys(data.symbols).length) return null;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                    marginBottom: 4 }}>
+        <span style={{ fontWeight: 800, fontSize: 15, color: "#f8fafc" }}>Crypto Positioning</span>
+        <span style={{ fontSize: 10, color: "#475569", fontFamily: "monospace" }}>
+          {(data.generated_at_utc || "").slice(0, 16).replace("T", " ")} UTC
+        </span>
+      </div>
+      <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 10, lineHeight: 1.5 }}>
+        No COT exists for crypto — nobody is compelled to disclose. Funding rate is the
+        honest substitute: longs pay shorts every 8 hours when the crowd is long.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+                    gap: 10 }}>
+        {Object.entries(data.symbols).map(([sym, e]) => <CryptoCard key={sym} sym={sym} e={e} />)}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 10, color: "#374151", lineHeight: 1.6 }}>
+        Funding above ~50% annualised means leveraged longs are paying heavily to stay in —
+        fuel for a liquidation cascade if price stalls. It can persist for weeks in a strong
+        trend, so treat it as crowding, not timing.
+      </div>
+    </div>
+  );
+}
+
+export default function MarketIntelTab({ dataUrl = "/signals_latest.json",
+                                        cryptoUrl = "/crypto_latest.json" }) {
   const [data, setData] = useState(null);
+  const [crypto, setCrypto] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -202,8 +343,16 @@ export default function MarketIntelTab({ dataUrl = "/signals_latest.json" }) {
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(j => { if (alive) setData(j); })
       .catch(e => { if (alive) setError(e.message); });
+
+    // crypto is optional — if the file is not there the section simply
+    // does not render, rather than breaking the whole tab
+    fetch(cryptoUrl)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (alive && j) setCrypto(j); })
+      .catch(() => {});
+
     return () => { alive = false; };
-  }, [dataUrl]);
+  }, [dataUrl, cryptoUrl]);
 
   if (error) {
     return (
@@ -241,6 +390,8 @@ export default function MarketIntelTab({ dataUrl = "/signals_latest.json" }) {
       <div style={{ marginTop: 10 }}>
         <SectorCard sectors={data.sectors} />
       </div>
+
+      <CryptoSection data={crypto} />
 
       {bad.length > 0 && (
         <div style={{ marginTop: 10, fontSize: 10, color: "#f59e0b", fontFamily: "monospace" }}>

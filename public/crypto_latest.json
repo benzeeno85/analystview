@@ -1,0 +1,108 @@
+{
+  "generated_at_utc": "2026-08-14T18:10:26+00:00",
+  "source": "Binance USD-M futures (public endpoints, no key required)",
+  "caveat": "Funding is a crowding gauge, not a timing signal. Extreme funding can persist for weeks in a strong trend.",
+  "symbols": {
+    "BTCUSDT": {
+      "funding": {
+        "latest_annualised_pct": 0.7,
+        "mean_7d_annualised_pct": 6.8,
+        "mean_30d_annualised_pct": 5.9,
+        "percentile_4m": 28.2,
+        "zscore_4m": -0.49,
+        "consecutive_periods_same_sign": 68,
+        "days_same_sign": 22.7,
+        "state": "normal \u2014 no crowding signal"
+      },
+      "price_change_7d_pct": -2.86,
+      "last_price": 63027.5,
+      "open_interest": {
+        "open_interest_usd": 6953694870,
+        "change_7d_pct": 2.2,
+        "interpretation": "no clear OI/price divergence"
+      },
+      "positioning": {
+        "retail_ratio": 1.87,
+        "top_trader_ratio": 1.52,
+        "divergence": -0.35,
+        "read": "mild divergence"
+      }
+    },
+    "ETHUSDT": {
+      "funding": {
+        "latest_annualised_pct": 0.8,
+        "mean_7d_annualised_pct": 4.9,
+        "mean_30d_annualised_pct": 3.7,
+        "percentile_4m": 33.4,
+        "zscore_4m": -0.25,
+        "consecutive_periods_same_sign": 1,
+        "days_same_sign": 0.3,
+        "state": "normal \u2014 no crowding signal"
+      },
+      "price_change_7d_pct": -1.87,
+      "last_price": 1877.31,
+      "open_interest": {
+        "open_interest_usd": 4416433169,
+        "change_7d_pct": 1.5,
+        "interpretation": "no clear OI/price divergence"
+      },
+      "positioning": {
+        "retail_ratio": 2.5,
+        "top_trader_ratio": 1.32,
+        "divergence": -1.18,
+        "read": "mild divergence"
+      }
+    },
+    "SOLUSDT": {
+      "funding": {
+        "latest_annualised_pct": -7.5,
+        "mean_7d_annualised_pct": 5.3,
+        "mean_30d_annualised_pct": 3.0,
+        "percentile_4m": 14.2,
+        "zscore_4m": -0.94,
+        "consecutive_periods_same_sign": 1,
+        "days_same_sign": 0.3,
+        "state": "normal \u2014 no crowding signal"
+      },
+      "price_change_7d_pct": 2.02,
+      "last_price": 75.11,
+      "open_interest": {
+        "open_interest_usd": 648057457,
+        "change_7d_pct": 6.3,
+        "interpretation": "rising OI + rising price \u2014 new longs entering, trend has fuel"
+      },
+      "positioning": {
+        "retail_ratio": 2.29,
+        "top_trader_ratio": 1.65,
+        "divergence": -0.64,
+        "read": "mild divergence"
+      }
+    },
+    "XRPUSDT": {
+      "funding": {
+        "latest_annualised_pct": 6.0,
+        "mean_7d_annualised_pct": 6.5,
+        "mean_30d_annualised_pct": 3.1,
+        "percentile_4m": 81.9,
+        "zscore_4m": 0.95,
+        "consecutive_periods_same_sign": 10,
+        "days_same_sign": 3.3,
+        "state": "normal \u2014 no crowding signal"
+      },
+      "price_change_7d_pct": -1.97,
+      "last_price": 1.0004,
+      "open_interest": {
+        "open_interest_usd": 388152242,
+        "change_7d_pct": 10.5,
+        "interpretation": "no clear OI/price divergence"
+      },
+      "positioning": {
+        "retail_ratio": 2.99,
+        "top_trader_ratio": 1.82,
+        "divergence": -1.17,
+        "read": "mild divergence"
+      }
+    }
+  },
+  "errors": {}
+}
