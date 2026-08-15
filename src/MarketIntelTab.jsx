@@ -331,23 +331,31 @@ function CryptoSection({ data }) {
   );
 }
 
-export default function MarketIntelTab({ dataUrl = "/signals_latest.json",
-                                        cryptoUrl = "/crypto_latest.json" }) {
+export default function MarketIntelTab({ dataUrl = "/api/signals",
+                                        cryptoUrl = "/api/crypto" }) {
   const [data, setData] = useState(null);
   const [crypto, setCrypto] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let alive = true;
+    // /api/signals falls back to the committed file server-side. If the
+    // endpoint itself is absent (plain static host, or local CRA without the
+    // api routes), fall back to the raw file client-side too.
     fetch(dataUrl)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .catch(() => fetch("/signals_latest.json").then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }))
       .then(j => { if (alive) setData(j); })
       .catch(e => { if (alive) setError(e.message); });
 
     // crypto is optional — if the file is not there the section simply
     // does not render, rather than breaking the whole tab
     fetch(cryptoUrl)
-      .then(r => (r.ok ? r.json() : null))
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .catch(() => fetch("/crypto_latest.json").then(r => (r.ok ? r.json() : null)))
       .then(j => { if (alive && j) setCrypto(j); })
       .catch(() => {});
 
