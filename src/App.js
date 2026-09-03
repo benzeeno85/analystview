@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Analytics } from '@vercel/analytics/react';
 import MarketIntelTab from "./MarketIntelTab";
 
 const API_KEYS = { finnhub: "", alphavantage: "", polygon: "", fmp: "" };
@@ -2801,6 +2802,7 @@ export default function App() {
       </div>
 
       {showSettings&&<SettingsModal keys={apiKeys} onSave={handleSaveKeys} onClose={()=>setShowSettings(false)}/>}
+      <Analytics />
     </div>
   );
 }
