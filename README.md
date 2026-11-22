@@ -68,3 +68,11 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+## Agent Office (live Claude Code sessions)
+
+The **🏢 Office** tab shows your Claude Code sessions as agents in a virtual office.
+Merge `scripts/claude-hooks.example.json` into `~/.claude/settings.json` (replace
+`/ABSOLUTE/PATH/TO/analystview`), restart Claude Code sessions, then run `npm start`.
+Each session reports to `public/agents_latest.json` (git-ignored) and the tab updates
+within ~5s. With no feed the tab runs a demo simulation.

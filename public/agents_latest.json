@@ -1,7 +1,0 @@
-{
-  "agents": [
-    { "id": "s-fcazm", "name": "Workplace", "role": "Claude Code · web/android", "state": "working", "task": "Agent workplace environment", "progress": 60 },
-    { "id": "s-14l6a", "name": "Laptop", "role": "Claude Code · claude.ai", "state": "error", "task": "Needs you: tell OS + power state for shutdown logs" },
-    { "id": "s-0183t", "name": "TradingView", "role": "Claude Code · CLI", "state": "offline", "task": "tradingview-mcp setup (archived)" }
-  ]
-}

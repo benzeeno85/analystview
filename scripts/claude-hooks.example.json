@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart":     [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }],
+    "PreToolUse":       [{ "matcher": "", "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }],
+    "Notification":     [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }],
+    "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/TO/analystview/scripts/agent-office-hook.js" }] }]
+  }
+}
