@@ -31,10 +31,12 @@ const clip = (s, n = 60) => String(s || "").replace(/\s+/g, " ").trim().slice(0,
 // ── Trading detection (TradingView MCP etc.) ────────────────────────────────
 const parts = n => String(n || "").split("__"); // mcp__server__tool
 const isMcp = n => String(n || "").startsWith("mcp__");
-const isTradingServer = n => isMcp(n) && /trad|tv|broker|alpaca|binance|ibkr|bybit|kucoin|ccxt|okx|bitget|kraken|coinbase|crypto|exchange/i.test(parts(n)[1] || "");
+const isTradingServer = n => isMcp(n) && /trad|tv|broker|alpaca|binance|ibkr|bybit|kucoin|cmc|ccxt|okx|bitget|kraken|coinbase|crypto|exchange/i.test(parts(n)[1] || "");
 
 // The team's agenda (default: crypto / KuCoin). Override with AGENT_OFFICE_AGENDA (a regex source).
-const AGENDA = new RegExp(process.env.AGENT_OFFICE_AGENDA || "kucoin|ccxt|crypto|\\b(btc|eth|sol|xrp|doge|bnb|ada|avax)[-_/ ]?usdt?\\b|usdt|funding[ _-]?rate|orderbook|order[ _-]?book", "i");
+const AGENDA = new RegExp(process.env.AGENT_OFFICE_AGENDA || "kucoin|cmc[ _-]?markets|cmcmarkets|\\bcmc\\b|\\bcfds?\\b|ccxt|crypto|\\b(btc|eth|sol|xrp|doge|bnb|ada|avax)[-_/ ]?usdt?\\b|usdt|funding[ _-]?rate|orderbook|order[ _-]?book", "i");
+const VENUES = [["KuCoin", /kucoin/i], ["CMC Markets", /cmc[ _-]?markets|cmcmarkets|\bcmc\b|mcp__cmc/i]];
+const venueOf = ev => { const t = toolText(ev); const v = VENUES.find(([, re]) => re.test(t)); return v && v[0]; };
 const toolText = ev => { try { return `${ev.tool_name} ${JSON.stringify(ev.tool_input || {})}`.slice(0, 3000); } catch { return String(ev.tool_name || ""); } };
 const onAgenda = ev => !!ev.tool_name && (isTradingServer(ev.tool_name) || AGENDA.test(toolText(ev)));
 const bashCmd = ev => (ev.tool_name === "Bash" && ev.tool_input && ev.tool_input.command) || "";
@@ -46,10 +48,10 @@ const isTradeTool = n => isMcp(n) && !/^(get|list|read|fetch|search|view|show|sc
 const pickField = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== "") return o[k]; };
 function tradeFromBash(cmd) {
   const m = (re) => { const x = re.exec(cmd); return x ? x[1] : undefined; };
-  const sym = m(/\b([A-Z0-9]{2,8}[-_/]USDT?)\b/i);
+  const sym = m(/(?:--?(?:symbol|instrument|epic|ticker|market|pair)[ =]|["']?(?:symbol|instrument|epic|ticker|market|pair)["']?\s*[:=]\s*["']?)([A-Za-z0-9._\/-]{2,15})/i) || m(/\b([A-Z0-9]{2,8}[-_/]USDT?)\b/i);
   return {
     side: m(/\b(buy|sell|long|short)\b/i),
-    symbol: sym && sym.toUpperCase().replace(/[_/]/g, "-"),
+    symbol: sym && (/usdt?$/i.test(sym) ? sym.toUpperCase().replace(/[_/]/g, "-") : sym.toUpperCase()),
     qty: (v => (v == null ? v : Number(v)))(m(/(?:--?(?:size|qty|quantity|amount)[ =]|["']?(?:size|qty|quantity|amount)["']?\s*[:=]\s*["']?)(\d+(?:\.\d+)?)/i)),
     price: (v => (v == null ? v : Number(v)))(m(/(?:--?price[ =]|["']?price["']?\s*[:=]\s*["']?)(\d+(?:\.\d+)?)/i)),
   };
@@ -144,7 +146,7 @@ function judge(feed, a, ev, now, isFailureEvent) {
     || (trading && /\b(error|rejected|insufficient|failed|invalid)\b/i.test(txt.slice(0, 600)));
   const pnl = trade && !failed ? parsePnl(txt) : undefined;
   if (trade) {
-    const tr = { t: now, agent: a.name, venue: a.venue, tool: shortTool(name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
+    const tr = { t: now, agent: a.name, venue: venueOf(ev) || a.venue, tool: shortTool(name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
     feed.trades = [tr, ...(feed.trades || [])].slice(0, 50);
     if (pnl != null) a.pnl = Math.round(((a.pnl || 0) + pnl) * 100) / 100;
   }
@@ -216,7 +218,8 @@ process.stdin.on("end", () => {
       }
       if (ev.tool_name) {
         ev._on = onAgenda(ev) || isBashTrade(ev);
-        if (/kucoin/i.test(toolText(ev))) a.venue = "KuCoin";
+        const v = venueOf(ev);
+        if (v) { a.venue = v; a.venues = Array.from(new Set([...(a.venues || []), v])); }
         if (ev.hook_event_name === "PreToolUse") { a.actions = (a.actions || 0) + 1; if (ev._on) a.onAgenda = (a.onAgenda || 0) + 1; }
       }
       const u = update(a, ev);

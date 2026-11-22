@@ -84,4 +84,4 @@ within ~5s. With no feed the tab runs a demo simulation.
 - Ranks come from points (successful trades, profit, fixes up; mistakes down): Intern → Analyst → Trader → Senior Trader → Portfolio Manager → CEO (top performer with 100+ points).
 
 ### Agenda focus (crypto / KuCoin demo)
-Work that touches KuCoin or crypto (MCP tools on a kucoin/exchange/trading server, or shell/script calls mentioning KuCoin, ccxt, BTC-USDT, funding rate, etc.) shows the agent as **Trading**; KuCoin order scripts go on the trade blotter. Each agent gets a focus score (share of its actions on the agenda). Change the agenda with `AGENT_OFFICE_AGENDA` (a regex) and the label with `REACT_APP_AGENDA`.
+Venues: KuCoin and CMC Markets. Work that touches KuCoin, CMC Markets or crypto (MCP tools on a kucoin/exchange/trading server, or shell/script calls mentioning KuCoin, ccxt, BTC-USDT, funding rate, etc.) shows the agent as **Trading**; KuCoin order scripts go on the trade blotter. Each agent gets a focus score (share of its actions on the agenda). Change the agenda with `AGENT_OFFICE_AGENDA` (a regex) and the label with `REACT_APP_AGENDA`.

@@ -21,7 +21,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
  */
 
 const FEED = process.env.REACT_APP_AGENTS_FEED || "/agents_latest.json";
-const AGENDA_LABEL = process.env.REACT_APP_AGENDA || "Crypto · KuCoin demo";
+const AGENDA_LABEL = process.env.REACT_APP_AGENDA || "Crypto (KuCoin) + CMC Markets";
 const focusOf = a => (a.actions > 0 ? Math.round((100 * (a.onAgenda || 0)) / a.actions) : null);
 const focusColor = f => (f >= 70 ? "#22c55e" : f >= 40 ? "#f59e0b" : "#ef4444");
 
@@ -344,7 +344,7 @@ export default function OfficeTab() {
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: selected === a.id ? "#1e293b" : "transparent" }}>
                 <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{focusOf(a) != null && <span title="Share of this agent's actions on the agenda" style={{ fontSize: 9, fontWeight: 800, marginLeft: 4, color: focusColor(focusOf(a)) }}>🎯{focusOf(a)}%</span>}{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{a.limit || MAX_STRIKES}</span>}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{(a.venues || []).map(v => <span key={v} style={{ fontSize: 8, color: "#eab308", border: "1px solid #eab30855", borderRadius: 4, padding: "0 3px", marginLeft: 4 }}>{v}</span>)}{focusOf(a) != null && <span title="Share of this agent's actions on the agenda" style={{ fontSize: 9, fontWeight: 800, marginLeft: 4, color: focusColor(focusOf(a)) }}>🎯{focusOf(a)}%</span>}{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{a.limit || MAX_STRIKES}</span>}</div>
                   <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.task}</div>
                 </div>
                 {a.pnl != null && <span style={{ fontSize: 10, fontWeight: 800, color: a.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(a.pnl)}</span>}
@@ -373,7 +373,7 @@ export default function OfficeTab() {
 
           {live && (
             <div style={{ background: "#0b1424", border: "1px solid #eab30855", borderRadius: 10, padding: 10, maxHeight: 260, overflowY: "auto" }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: "#eab308", letterSpacing: 1, marginBottom: 6 }}>📈 TRADE BLOTTER{trades.some(t => t.venue) ? ` · ${trades.find(t => t.venue).venue} DEMO` : ""}</div>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#eab308", letterSpacing: 1, marginBottom: 6 }}>📈 TRADE BLOTTER{trades.some(t => t.venue) ? ` · ${[...new Set(trades.map(t => t.venue).filter(Boolean))].join(" / ")}` : ""}</div>
               {trades.length === 0 && <div style={{ fontSize: 11, color: "#475569" }}>No trades detected yet. Trades appear when an agent calls a TradingView order/trade tool.</div>}
               {trades.slice(0, 25).map((t, i) => {
                 const buy = /buy|long/i.test(t.side || ""), sell = /sell|short/i.test(t.side || "");
