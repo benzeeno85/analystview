@@ -76,3 +76,9 @@ Merge `scripts/claude-hooks.example.json` into `~/.claude/settings.json` (replac
 `/ABSOLUTE/PATH/TO/analystview`), restart Claude Code sessions, then run `npm start`.
 Each session reports to `public/agents_latest.json` (git-ignored) and the tab updates
 within ~5s. With no feed the tab runs a demo simulation.
+
+### Accountability rules (Agent Office)
+- A failed call to a trading tool (rejected order, error response) is a **strike**; a later success is a **fix** and clears strikes.
+- **3 unresolved strikes in a row = terminated** (`AGENT_OFFICE_MAX_STRIKES` to change). The agent is walked out to the lobby and the next new session joins as an Intern in the vacated desk.
+- Optional hard enforcement: set `AGENT_OFFICE_ENFORCE=1` to also **block a terminated session's tool calls** (off by default).
+- Ranks come from points (successful trades, profit, fixes up; mistakes down): Intern → Analyst → Trader → Senior Trader → Portfolio Manager → CEO (top performer with 100+ points).

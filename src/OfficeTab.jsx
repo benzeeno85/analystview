@@ -23,14 +23,16 @@ import { useState, useEffect, useMemo, useRef } from "react";
 const FEED = process.env.REACT_APP_AGENTS_FEED || "/agents_latest.json";
 
 const STATES = {
-  trading: { label: "Trading",         icon: "📈", color: "#eab308" },
-  working: { label: "Working",         icon: "⌨️", color: "#22c55e" },
-  meeting: { label: "In meeting",      icon: "💬", color: "#3b82f6" },
-  break:   { label: "On break",        icon: "☕", color: "#f59e0b" },
-  error:   { label: "Troubleshooting", icon: "🔧", color: "#ef4444" },
-  offline: { label: "Offline",         icon: "💤", color: "#64748b" },
+  trading: { label: "Trading",         short: "TRADING",   icon: "📈", color: "#eab308" },
+  working: { label: "Working",         short: "WORKING",   icon: "⌨️", color: "#22c55e" },
+  idle:    { label: "Awaiting orders", short: "IDLE",      icon: "🪑", color: "#94a3b8" },
+  error:   { label: "Needs fix",       short: "NEEDS FIX", icon: "⚠️", color: "#f59e0b" },
+  fired:   { label: "Terminated",      short: "FIRED",     icon: "🚫", color: "#ef4444" },
+  offline: { label: "Offline",         short: "OFFLINE",   icon: "💤", color: "#64748b" },
 };
-const stateOf = s => (STATES[s] ? s : "offline");
+const ALIAS = { break: "idle", meeting: "idle" };
+const stateOf = s => (STATES[s] ? s : ALIAS[s] || "offline");
+const SEATED = new Set(["trading", "working", "idle", "error"]); // everyone else is out of the office
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 const DESKS = [0, 1].flatMap(r => [0, 1, 2, 3].map(c => ({ x: 40 + c * 150, y: 70 + r * 170 })));
@@ -41,10 +43,10 @@ const ZONE_SPOTS = {
   error:   [[75, 545], [130, 545], [185, 545], [240, 545], [290, 545], [100, 505], [215, 505], [270, 505]],
   offline: [[700, 560], [750, 560], [800, 560], [850, 560], [900, 560], [950, 560], [725, 510], [925, 510]],
 };
-const ZONE_OF = { trading: "workspace", working: "workspace", meeting: "meeting", break: "break", error: "server", offline: "lobby" };
+const CEO_SEAT = { x: 500, y: 562, zone: "ops" };
 // Route through corridors so agents walk via doors instead of through walls.
 const TOP_Y = { workspace: 200, meeting: 205, break: 262 };
-const BOTTOM_DOOR = { server: [170, 432], lobby: [820, 432] };
+const BOTTOM_DOOR = { server: [170, 432], ops: [510, 432], lobby: [820, 432] };
 const JUNCTION = [655, 432];
 
 function pathBetween(from, to) {
@@ -76,41 +78,73 @@ const DEMO_ROSTER = [
   { id: "iris",  name: "Iris",  role: "ETF Researcher",        tasks: ["Comparing ETF expense ratios", "Reviewing holdings overlap", "Pulling fund flows", "Rating ETF categories"] },
 ];
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const MEETING_TOPICS = ["Morning sync", "Review signal conflicts", "Plan report schedule", "Risk huddle"];
-const ERROR_TASKS = ["API rate-limited — retrying", "Parse error in feed", "Timeout from data provider", "Fixing malformed JSON"];
+const ERROR_TASKS = ["order rejected by broker", "bad symbol in request", "timeout from data provider", "malformed JSON response"];
+const NEW_HIRES = ["Blake", "Cole", "Dana", "Eli", "Finn", "Gwen", "Hugo", "Ines", "Jude", "Kira"];
+const RANK_LIST = [["Intern", 0], ["Analyst", 8], ["Trader", 20], ["Senior Trader", 40], ["Portfolio Manager", 70]];
+const CEO_MIN = 100, MAX_STRIKES = 3;
+const rankOf = pts => RANK_LIST.reduce((r, [n, min]) => (pts >= min ? n : r), "Intern");
+const RANK_SHORT = { Intern: "INT", Analyst: "ANL", Trader: "TRD", "Senior Trader": "SNR", "Portfolio Manager": "PM", CEO: "CEO" };
 
-function initDemo() {
-  return DEMO_ROSTER.map((r, i) => ({
-    ...r, color: SHIRTS[i], state: i === 7 ? "break" : "working",
-    task: i === 7 ? "Coffee break" : pick(r.tasks), progress: Math.floor(Math.random() * 70),
-  }));
+// Top performer (>= CEO_MIN points, still employed) becomes CEO; everyone else is ranked on points.
+function applyRanks(list, hr) {
+  const ceo = list.filter(x => x.state !== "fired" && x.state !== "offline" && x.points >= CEO_MIN).sort((p, q) => q.points - p.points)[0];
+  list.forEach(x => {
+    const want = x.state === "fired" ? x.rank : ceo && x.id === ceo.id ? "CEO" : rankOf(x.points);
+    if (hr && x.rank && x.rank !== want && x.state !== "fired") {
+      const up = want === "CEO" || RANK_LIST.findIndex(r => r[0] === want) > RANK_LIST.findIndex(r => r[0] === x.rank);
+      hr(up ? "promoted" : "demoted", x.name, want === "CEO" ? "Became CEO 👑" : `${up ? "Promoted" : "Demoted"} to ${want}`);
+    }
+    x.rank = want;
+  });
 }
 
-function stepDemo(agents, log) {
+function initDemo() {
+  const list = DEMO_ROSTER.map((r, i) => ({
+    ...r, color: SHIRTS[i], state: "working", task: pick(r.tasks), progress: Math.floor(Math.random() * 70),
+    desk: i, points: 10 + Math.floor(Math.random() * 85), strikes: 0, pnl: Math.floor(Math.random() * 400) - 60,
+  }));
+  applyRanks(list);
+  return list;
+}
+
+function stepDemo(agents, log, hr) {
   const next = agents.map(a => ({ ...a }));
-  next.forEach(a => {
+  next.forEach((a, i) => {
     if (a.state === "working") {
       a.progress = Math.min(100, (a.progress || 0) + 8 + Math.random() * 18);
       if (a.progress >= 100) {
-        log(a.name, `Completed: ${a.task}`);
-        const r = Math.random();
-        if (r < 0.2) Object.assign(a, { state: "break", task: "Coffee break", progress: 0 });
-        else if (r < 0.35) Object.assign(a, { state: "meeting", task: pick(MEETING_TOPICS), progress: 0 });
-        else Object.assign(a, { task: pick(DEMO_ROSTER.find(x => x.id === a.id).tasks), progress: 0 });
-      } else if (Math.random() < 0.025) {
-        Object.assign(a, { state: "error", task: pick(ERROR_TASKS) });
-        log(a.name, `Hit a problem: ${a.task}`);
+        const pnl = Math.round(Math.random() * 160 - 45);
+        a.pnl += pnl; a.points = +(a.points + 1 + pnl / 100).toFixed(2);
+        log(a.name, `Completed: ${a.task} (${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl)})`);
+        Object.assign(a, { task: pick(a.tasks), progress: 0 });
+      } else if (Math.random() < 0.015) {
+        a.strikes = 1; a.points -= 3;
+        Object.assign(a, { state: "error", task: `Mistake: ${pick(ERROR_TASKS)} — strike 1/${MAX_STRIKES}` });
+        log(a.name, a.task);
       }
-    } else if (Math.random() < 0.28) {
-      const wasErr = a.state === "error";
-      Object.assign(a, { state: "working", task: pick(DEMO_ROSTER.find(x => x.id === a.id).tasks), progress: 0 });
-      log(a.name, wasErr ? "Fixed the issue, back to work" : `Started: ${a.task}`);
+    } else if (a.state === "error") {
+      if (Math.random() < 0.5) {
+        a.strikes = 0; a.points += 2;
+        Object.assign(a, { state: "working", task: pick(a.tasks), progress: 0 });
+        log(a.name, "Fixed the mistake"); hr("fixed", a.name, "Fixed their mistake");
+      } else {
+        a.strikes += 1; a.points -= 3;
+        if (a.strikes >= MAX_STRIKES) {
+          Object.assign(a, { state: "fired", task: `Terminated: ${a.strikes} unresolved mistakes`, firedTick: 0 });
+          hr("terminated", a.name, `${a.strikes} unresolved mistakes in a row`);
+        } else a.task = `Still failing — strike ${a.strikes}/${MAX_STRIKES}`;
+      }
+    } else if (a.state === "fired") {
+      a.firedTick = (a.firedTick || 0) + 1;
+      if (a.firedTick >= 3) {
+        const name = pick(NEW_HIRES.filter(n => !next.some(x => x.name === n)));
+        next[i] = { id: "hire-" + Math.random().toString(36).slice(2, 6), name, role: a.role, tasks: a.tasks, color: a.color,
+          state: "working", task: pick(a.tasks), progress: 0, desk: a.desk, rank: "Intern", points: 0, strikes: 0, pnl: 0 };
+        hr("hired", name, `Joined as Intern, replacing ${a.name}`);
+      }
     }
   });
-  if (Math.random() < 0.02) {
-    const a = pick(next);
-    if (a.state === "working") { Object.assign(a, { state: "offline", task: "Out of office" }); log(a.name, "Went offline"); }
-  }
+  applyRanks(next, hr);
   return next;
 }
 
@@ -120,6 +154,9 @@ const clip = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s || "")
 // ── Component ───────────────────────────────────────────────────────────────
 export default function OfficeTab() {
   const [demo, setDemo] = useState(initDemo);
+  const [demoHr, setDemoHr] = useState([]);
+  const demoRef = useRef(null);
+  const mounted = useRef(false);
   const [feed, setFeed] = useState(null);
   const [forceDemo, setForceDemo] = useState(false);
   const [logItems, setLogItems] = useState([]);
@@ -132,6 +169,7 @@ export default function OfficeTab() {
   const prevStates = useRef({});
   const seenEvents = useRef(new Set());
 
+  const pushHr = (type, agent, detail) => setDemoHr(l => [{ t: Date.now(), type, agent, detail }, ...l].slice(0, 40));
   const pushLog = (agent, text) =>
     setLogItems(l => [{ t: Date.now(), agent, text }, ...l].slice(0, 60));
 
@@ -161,16 +199,22 @@ export default function OfficeTab() {
   const live = !!feed;
   useEffect(() => {
     if (live) return;
-    const i = setInterval(() => setDemo(a => stepDemo(a, pushLog)), 1800);
+    if (demoRef.current === null) demoRef.current = demo;
+    const i = setInterval(() => { const n = stepDemo(demoRef.current, pushLog, pushHr); demoRef.current = n; setDemo(n); }, 1800);
     return () => clearInterval(i);
   }, [live]);
 
-  const agents = useMemo(
-    () => (live ? feed.agents : demo).slice(0, 8).map((a, i) => ({
-      ...a, id: a.id || a.name, state: stateOf(a.state), color: a.color || SHIRTS[i % SHIRTS.length], idx: i,
-    })),
-    [live, feed, demo]
-  );
+  const agents = useMemo(() => {
+    const raw = live ? feed.agents : demo;
+    const order = [...raw].sort((p, q) => String(p.id || p.name).localeCompare(String(q.id || q.name)));
+    const list = raw.map(a => {
+      const id = a.id || a.name;
+      const i = order.findIndex(x => (x.id || x.name) === id);
+      return { ...a, id, state: stateOf(a.state), color: a.color || SHIRTS[i % SHIRTS.length], idx: i,
+        points: a.points || 0, strikes: a.strikes || 0, rank: a.rank || rankOf(a.points || 0) };
+    });
+    return [...list.filter(a => a.state !== "fired"), ...list.filter(a => a.state === "fired")].slice(0, 8);
+  }, [live, feed, demo]);
 
   // live mode: derive log from state/task changes + optional events
   useEffect(() => {
@@ -187,19 +231,18 @@ export default function OfficeTab() {
     });
   }, [live, feed, agents]);
 
-  // desk / spot assignment
+  // Everyone stays at their desk (the CEO in the corner office). Only terminated or offline agents leave.
   const targets = useMemo(() => {
-    const used = {};
+    let out_n = 0;
     const out = {};
     agents.forEach(a => {
-      if (a.state === "working" || a.state === "trading") {
-        const s = seatOf(DESKS[a.idx]);
-        out[a.id] = { ...s, zone: "workspace" };
+      if (SEATED.has(a.state)) {
+        if (a.rank === "CEO") out[a.id] = CEO_SEAT;
+        else out[a.id] = { ...seatOf(DESKS[(Number.isInteger(a.desk) ? a.desk : a.idx) % 8]), zone: "workspace" };
       } else {
-        const list = ZONE_SPOTS[a.state];
-        const n = (used[a.state] = (used[a.state] || 0) + 1) - 1;
-        const [x, y] = list[n % list.length];
-        out[a.id] = { x, y, zone: ZONE_OF[a.state] };
+        const list = ZONE_SPOTS.offline;
+        const [x, y] = list[out_n++ % list.length];
+        out[a.id] = { x, y, zone: "lobby" };
       }
     });
     return out;
@@ -213,22 +256,28 @@ export default function OfficeTab() {
       if (last && last.x === t.x && last.y === t.y) return;
       lastTarget.current[a.id] = t;
       (timers.current[a.id] || []).forEach(clearTimeout);
-      if (!last) { setPos(p => ({ ...p, [a.id]: { x: t.x, y: t.y } })); return; }
-      const pts = pathBetween(last, t);
+      let from = last, delay = 0;
+      if (!from) {
+        if (!mounted.current) { setPos(p => ({ ...p, [a.id]: { x: t.x, y: t.y } })); return; }
+        from = { x: 820, y: 520, zone: "lobby" }; delay = 150; // new hire arrives through the lobby
+        setPos(p => ({ ...p, [a.id]: { x: from.x, y: from.y } }));
+      }
+      const pts = pathBetween(from, t);
       const step = 850;
       setWalking(w => ({ ...w, [a.id]: true }));
       timers.current[a.id] = pts.map((p, i) =>
         setTimeout(() => {
           setPos(ps => ({ ...ps, [a.id]: { x: p[0], y: p[1] } }));
           if (i === pts.length - 1) setTimeout(() => setWalking(w => ({ ...w, [a.id]: false })), step);
-        }, i * step)
+        }, delay + i * step)
       );
     });
   }, [targets, agents]);
+  useEffect(() => { mounted.current = true; }, []);
   useEffect(() => () => Object.values(timers.current).flat().forEach(clearTimeout), []);
 
   const counts = useMemo(() => {
-    const c = { trading: 0, working: 0, meeting: 0, break: 0, error: 0, offline: 0 };
+    const c = { trading: 0, working: 0, idle: 0, error: 0, fired: 0, offline: 0 };
     agents.forEach(a => c[a.state]++);
     return c;
   }, [agents]);
@@ -272,9 +321,9 @@ export default function OfficeTab() {
 
             {/* agents */}
             {agents.map(a => {
-              const p = pos[a.id] || targets[a.id];
+              const p = pos[a.id] || (mounted.current ? { x: 820, y: 520 } : targets[a.id]);
               return <Person key={a.id} a={a} x={p.x} y={p.y} walking={!!walking[a.id]} selected={selected === a.id}
-                compact={a.state !== "working" && a.state !== "trading"} onClick={e => { e.stopPropagation(); setSelected(a.id); }} />;
+                compact={!SEATED.has(a.state) || a.rank === "CEO"} onClick={e => { e.stopPropagation(); setSelected(a.id); }} />;
             })}
           </svg>
         </div>
@@ -288,7 +337,7 @@ export default function OfficeTab() {
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: selected === a.id ? "#1e293b" : "transparent" }}>
                 <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontWeight: 400, color: "#64748b", fontSize: 10 }}>{a.role}</span></div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{MAX_STRIKES}</span>}</div>
                   <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.task}</div>
                 </div>
                 {a.pnl != null && <span style={{ fontSize: 10, fontWeight: 800, color: a.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(a.pnl)}</span>}
@@ -303,6 +352,7 @@ export default function OfficeTab() {
               <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>{sel.role}</div>
               <div style={{ fontSize: 11, color: STATES[sel.state].color, fontWeight: 700 }}>{STATES[sel.state].icon} {STATES[sel.state].label}</div>
               <div style={{ fontSize: 12, color: "#e2e8f0", margin: "4px 0 8px" }}>{sel.task}</div>
+              <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{sel.rank} · {Math.round(sel.points)} pts · strikes {sel.strikes}/{MAX_STRIKES} · mistakes {sel.mistakes || 0} · fixes {sel.fixes || 0}{sel.pnl != null ? ` · P&L ${money(sel.pnl)}` : ""}</div>
               {(sel.state === "working" || sel.state === "trading") && sel.progress != null && (
                 <div style={{ height: 6, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.round(sel.progress)}%`, height: "100%", background: "#22c55e", transition: "width .8s" }} />
@@ -333,6 +383,8 @@ export default function OfficeTab() {
               })}
             </div>
           )}
+
+          <HrPanel items={live ? feed.hr || [] : demoHr} />
 
           <div style={{ background: "#0b1424", border: "1px solid #1e293b", borderRadius: 10, padding: 10, maxHeight: 280, overflowY: "auto" }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: "#64748b", letterSpacing: 1, marginBottom: 6 }}>ACTIVITY LOG</div>
@@ -372,7 +424,7 @@ function Person({ a, x, y, walking, selected, compact, onClick }) {
   const i = a.idx, st = STATES[a.state];
   const typing = (a.state === "working" || a.state === "trading") && !walking;
   return (
-    <g className="ofc-agent" style={{ transform: `translate(${x}px, ${y}px)` }} onClick={onClick} opacity={a.state === "offline" ? 0.6 : 1}>
+    <g className="ofc-agent" style={{ transform: `translate(${x}px, ${y}px)`, filter: a.state === "fired" ? "grayscale(1)" : undefined }} onClick={onClick} opacity={a.state === "offline" ? 0.6 : a.state === "fired" ? 0.75 : 1}>
       <ellipse cx="0" cy="10" rx="15" ry="7" fill="rgba(0,0,0,.22)" />
       {walking && <>
         <ellipse className="ofc-foot-l" cx="-5" cy="15" rx="3.5" ry="4.5" fill="#1f2937" />
@@ -396,6 +448,7 @@ function Person({ a, x, y, walking, selected, compact, onClick }) {
         <circle r="8" fill="#fff" stroke={st.color} strokeWidth="2" className={a.state === "error" ? "ofc-blink" : ""} />
         <text textAnchor="middle" y="3.5" fontSize="9">{st.icon}</text>
       </g>
+      {a.rank === "CEO" && <text x="-18" y="-20" fontSize="11">👑</text>}
       {a.state === "offline" && <text className="ofc-zzz" x="12" y="-14" fontSize="10" fontWeight="800" fill="#475569">z</text>}
       {/* name plate */}
       {compact ? (
@@ -406,7 +459,7 @@ function Person({ a, x, y, walking, selected, compact, onClick }) {
       ) : (
         <g transform="translate(0,22)">
           <rect x="-66" y="0" width="132" height="31" rx="6" fill="#fff" fillOpacity=".94" stroke={st.color} />
-          <text textAnchor="middle" y="12" fontSize="10" fontWeight="800" fill="#0f172a">{a.name}</text>
+          <text textAnchor="middle" y="12" fontSize="9.5" fontWeight="800" fill="#0f172a">{clip(a.name, 9)} · {RANK_SHORT[a.rank] || ""}{a.strikes > 0 ? " " + "✗".repeat(a.strikes) : ""}</text>
           <text textAnchor="middle" y="23" fontSize="8.5" fill="#475569">{clip(a.task, 27)}</text>
           {a.progress != null && <rect x="-60" y="27" width={Math.max(0, Math.min(120, a.progress * 1.2))} height="2.5" rx="1" fill={st.color} style={{ transition: "width .8s" }} />}
         </g>
@@ -461,7 +514,7 @@ function Desk({ d, agent }) {
 function FloorPlan({ counts, now, agents }) {
   const h = now.getHours() % 12, m = now.getMinutes(), s = now.getSeconds();
   const hAng = (h + m / 60) * 30, mAng = (m + s / 60) * 6;
-  const byIdx = i => agents.find(a => a.idx === i);
+  const byIdx = i => agents.find(a => a.rank !== "CEO" && ["trading", "working", "idle", "error"].includes(a.state) && (Number.isInteger(a.desk) ? a.desk : a.idx) === i);
   return (
     <g>
       <defs>
@@ -543,11 +596,12 @@ function FloorPlan({ counts, now, agents }) {
           <rect width="38" height="46" rx="4" fill="#111c33" stroke={st.color} strokeOpacity=".6" />
           <text x="19" y="19" textAnchor="middle" fontSize="15" fontWeight="800" fill={st.color}>{counts[k]}</text>
           <text x="19" y="31" textAnchor="middle" fontSize="10">{st.icon}</text>
-          <text x="19" y="41" textAnchor="middle" fontSize="5" fill="#94a3b8" fontWeight="700">{st.label.toUpperCase().slice(0, 9)}</text>
+          <text x="19" y="41" textAnchor="middle" fontSize="5" fill="#94a3b8" fontWeight="700">{st.short}</text>
         </g>
       ))}
       <rect x="440" y="548" width="120" height="34" rx="3" fill="#c9a77c" stroke="#8a6a43" strokeWidth="1.5" />
       <rect x="480" y="552" width="40" height="5" fill="#0f172a" />
+      <text x="500" y="575" textAnchor="middle" fontSize="6" fontWeight="800" fill="#78350f" letterSpacing="1">CEO OFFICE</text>
       <Plant x={390} y={565} /><Plant x={612} y={565} />
 
       {/* lobby */}
@@ -555,5 +609,23 @@ function FloorPlan({ counts, now, agents }) {
       <text x="820" y="472" textAnchor="middle" fontSize="8" fontWeight="800" fill="#e7e5e4" letterSpacing="1">RECEPTION</text>
       <Plant x={690} y={460} /><Plant x={960} y={460} />
     </g>
+  );
+}
+
+const HR_ICON = { hired: "🆕", promoted: "⬆️", demoted: "⬇️", terminated: "🚫", fixed: "🔧" };
+const HR_COLOR = { hired: "#60a5fa", promoted: "#22c55e", demoted: "#f59e0b", terminated: "#ef4444", fixed: "#94a3b8" };
+function HrPanel({ items }) {
+  return (
+    <div style={{ background: "#0b1424", border: "1px solid #ef444455", borderRadius: 10, padding: 10, maxHeight: 220, overflowY: "auto" }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: "#ef4444", letterSpacing: 1, marginBottom: 6 }}>🏛 HR · ACCOUNTABILITY</div>
+      <div style={{ fontSize: 10, color: "#475569", marginBottom: 6 }}>{MAX_STRIKES} unresolved mistakes in a row = terminated and replaced. Top performers rise to CEO.</div>
+      {items.length === 0 && <div style={{ fontSize: 11, color: "#475569" }}>No HR events yet.</div>}
+      {items.slice(0, 20).map((h, i) => (
+        <div key={i} style={{ fontSize: 11, padding: "3px 0", borderBottom: "1px solid #111827", color: "#94a3b8" }}>
+          <span style={{ color: "#475569", fontFamily: "monospace" }}>{hhmmss(h.t)}</span> {HR_ICON[h.type] || "•"}{" "}
+          <b style={{ color: HR_COLOR[h.type] || "#cbd5e1" }}>{h.agent}</b> {h.detail}
+        </div>
+      ))}
+    </div>
   );
 }
