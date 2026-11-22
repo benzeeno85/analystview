@@ -23,6 +23,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 const FEED = process.env.REACT_APP_AGENTS_FEED || "/agents_latest.json";
 
 const STATES = {
+  trading: { label: "Trading",         icon: "📈", color: "#eab308" },
   working: { label: "Working",         icon: "⌨️", color: "#22c55e" },
   meeting: { label: "In meeting",      icon: "💬", color: "#3b82f6" },
   break:   { label: "On break",        icon: "☕", color: "#f59e0b" },
@@ -40,7 +41,7 @@ const ZONE_SPOTS = {
   error:   [[75, 545], [130, 545], [185, 545], [240, 545], [290, 545], [100, 505], [215, 505], [270, 505]],
   offline: [[700, 560], [750, 560], [800, 560], [850, 560], [900, 560], [950, 560], [725, 510], [925, 510]],
 };
-const ZONE_OF = { working: "workspace", meeting: "meeting", break: "break", error: "server", offline: "lobby" };
+const ZONE_OF = { trading: "workspace", working: "workspace", meeting: "meeting", break: "break", error: "server", offline: "lobby" };
 // Route through corridors so agents walk via doors instead of through walls.
 const TOP_Y = { workspace: 200, meeting: 205, break: 262 };
 const BOTTOM_DOOR = { server: [170, 432], lobby: [820, 432] };
@@ -191,7 +192,7 @@ export default function OfficeTab() {
     const used = {};
     const out = {};
     agents.forEach(a => {
-      if (a.state === "working") {
+      if (a.state === "working" || a.state === "trading") {
         const s = seatOf(DESKS[a.idx]);
         out[a.id] = { ...s, zone: "workspace" };
       } else {
@@ -227,13 +228,17 @@ export default function OfficeTab() {
   useEffect(() => () => Object.values(timers.current).flat().forEach(clearTimeout), []);
 
   const counts = useMemo(() => {
-    const c = { working: 0, meeting: 0, break: 0, error: 0, offline: 0 };
+    const c = { trading: 0, working: 0, meeting: 0, break: 0, error: 0, offline: 0 };
     agents.forEach(a => c[a.state]++);
     return c;
   }, [agents]);
 
   const sel = agents.find(a => a.id === selected);
   const total = live ? feed.agents.length : demo.length;
+  const trades = live && Array.isArray(feed.trades) ? feed.trades : [];
+  const totalPnl = agents.reduce((n, x) => n + (Number(x.pnl) || 0), 0);
+  const hasPnl = trades.length > 0 || agents.some(x => x.pnl != null);
+  const money = v => `${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
   return (
     <div style={{ flex: 1, overflow: "auto", background: "#060e1a", padding: 14 }}>
@@ -246,6 +251,7 @@ export default function OfficeTab() {
           {live ? "● LIVE FEED" : "◌ DEMO MODE"}
         </span>
         {total > 8 && <span style={{ fontSize: 10, color: "#64748b" }}>showing 8 of {total}</span>}
+        {hasPnl && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 10px", borderRadius: 10, color: totalPnl >= 0 ? "#22c55e" : "#ef4444", background: "#0b1424", border: `1px solid ${totalPnl >= 0 ? "#22c55e66" : "#ef444466"}` }}>P&L {money(totalPnl)} · {trades.length} trades</span>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
           {Object.entries(STATES).map(([k, s]) => (
             <span key={k} style={{ fontSize: 10, color: s.color, background: "#0b1424", border: "1px solid #1e293b", borderRadius: 10, padding: "2px 8px", fontWeight: 700 }}>
@@ -268,7 +274,7 @@ export default function OfficeTab() {
             {agents.map(a => {
               const p = pos[a.id] || targets[a.id];
               return <Person key={a.id} a={a} x={p.x} y={p.y} walking={!!walking[a.id]} selected={selected === a.id}
-                compact={a.state !== "working"} onClick={e => { e.stopPropagation(); setSelected(a.id); }} />;
+                compact={a.state !== "working" && a.state !== "trading"} onClick={e => { e.stopPropagation(); setSelected(a.id); }} />;
             })}
           </svg>
         </div>
@@ -285,6 +291,7 @@ export default function OfficeTab() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontWeight: 400, color: "#64748b", fontSize: 10 }}>{a.role}</span></div>
                   <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.task}</div>
                 </div>
+                {a.pnl != null && <span style={{ fontSize: 10, fontWeight: 800, color: a.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(a.pnl)}</span>}
                 <span title={STATES[a.state].label} style={{ fontSize: 13 }}>{STATES[a.state].icon}</span>
               </div>
             ))}
@@ -296,7 +303,7 @@ export default function OfficeTab() {
               <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>{sel.role}</div>
               <div style={{ fontSize: 11, color: STATES[sel.state].color, fontWeight: 700 }}>{STATES[sel.state].icon} {STATES[sel.state].label}</div>
               <div style={{ fontSize: 12, color: "#e2e8f0", margin: "4px 0 8px" }}>{sel.task}</div>
-              {sel.state === "working" && sel.progress != null && (
+              {(sel.state === "working" || sel.state === "trading") && sel.progress != null && (
                 <div style={{ height: 6, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.round(sel.progress)}%`, height: "100%", background: "#22c55e", transition: "width .8s" }} />
                 </div>
@@ -304,6 +311,26 @@ export default function OfficeTab() {
               <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
                 Recent: {logItems.filter(l => l.agent === sel.name).slice(0, 3).map(l => l.text).join(" · ") || "—"}
               </div>
+            </div>
+          )}
+
+          {live && (
+            <div style={{ background: "#0b1424", border: "1px solid #eab30855", borderRadius: 10, padding: 10, maxHeight: 260, overflowY: "auto" }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#eab308", letterSpacing: 1, marginBottom: 6 }}>📈 TRADE BLOTTER</div>
+              {trades.length === 0 && <div style={{ fontSize: 11, color: "#475569" }}>No trades detected yet. Trades appear when an agent calls a TradingView order/trade tool.</div>}
+              {trades.slice(0, 25).map((t, i) => {
+                const buy = /buy|long/i.test(t.side || ""), sell = /sell|short/i.test(t.side || "");
+                return (
+                  <div key={i} style={{ fontSize: 11, padding: "4px 0", borderBottom: "1px solid #111827", display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                    <span style={{ color: "#475569", fontFamily: "monospace" }}>{hhmmss(t.t)}</span>
+                    <b style={{ color: "#cbd5e1" }}>{t.agent}</b>
+                    <span style={{ fontWeight: 800, color: buy ? "#22c55e" : sell ? "#ef4444" : "#94a3b8" }}>{(t.side || t.action || "TRADE").toUpperCase()}</span>
+                    <span style={{ color: "#e2e8f0" }}>{t.symbol || "?"}{t.qty != null ? ` ×${t.qty}` : ""}{t.price != null ? ` @ ${t.price}` : ""}</span>
+                    {t.status === "error" && <span style={{ color: "#ef4444" }}>failed</span>}
+                    {t.pnl != null && <span style={{ marginLeft: "auto", fontWeight: 800, color: t.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(t.pnl)}</span>}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -343,7 +370,7 @@ const CSS = `
 // ── Agent figure (top-down) ─────────────────────────────────────────────────
 function Person({ a, x, y, walking, selected, compact, onClick }) {
   const i = a.idx, st = STATES[a.state];
-  const typing = a.state === "working" && !walking;
+  const typing = (a.state === "working" || a.state === "trading") && !walking;
   return (
     <g className="ofc-agent" style={{ transform: `translate(${x}px, ${y}px)` }} onClick={onClick} opacity={a.state === "offline" ? 0.6 : 1}>
       <ellipse cx="0" cy="10" rx="15" ry="7" fill="rgba(0,0,0,.22)" />
@@ -406,7 +433,7 @@ const Plant = ({ x, y }) => (
 );
 
 function Desk({ d, agent }) {
-  const on = agent && agent.state === "working";
+  const on = agent && (agent.state === "working" || agent.state === "trading");
   const screen = on ? "#38bdf8" : agent && agent.state === "error" ? "#7f1d1d" : "#1e293b";
   return (
     <g transform={`translate(${d.x},${d.y})`}>
@@ -512,11 +539,11 @@ function FloorPlan({ counts, now, agents }) {
       <rect x="370" y="452" width="260" height="78" rx="4" fill="#0f172a" stroke="#475569" strokeWidth="3" />
       <text x="500" y="468" textAnchor="middle" fontSize="9" fontWeight="800" fill="#38bdf8" letterSpacing="2">MISSION CONTROL</text>
       {Object.entries(STATES).map(([k, st], n) => (
-        <g key={k} transform={`translate(${382 + n * 49},476)`}>
-          <rect width="44" height="46" rx="4" fill="#111c33" stroke={st.color} strokeOpacity=".6" />
-          <text x="22" y="19" textAnchor="middle" fontSize="15" fontWeight="800" fill={st.color}>{counts[k]}</text>
-          <text x="22" y="31" textAnchor="middle" fontSize="10">{st.icon}</text>
-          <text x="22" y="41" textAnchor="middle" fontSize="5.5" fill="#94a3b8" fontWeight="700">{st.label.toUpperCase().slice(0, 11)}</text>
+        <g key={k} transform={`translate(${380 + n * 41},476)`}>
+          <rect width="38" height="46" rx="4" fill="#111c33" stroke={st.color} strokeOpacity=".6" />
+          <text x="19" y="19" textAnchor="middle" fontSize="15" fontWeight="800" fill={st.color}>{counts[k]}</text>
+          <text x="19" y="31" textAnchor="middle" fontSize="10">{st.icon}</text>
+          <text x="19" y="41" textAnchor="middle" fontSize="5" fill="#94a3b8" fontWeight="700">{st.label.toUpperCase().slice(0, 9)}</text>
         </g>
       ))}
       <rect x="440" y="548" width="120" height="34" rx="3" fill="#c9a77c" stroke="#8a6a43" strokeWidth="1.5" />

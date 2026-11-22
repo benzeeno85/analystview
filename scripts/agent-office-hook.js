@@ -21,9 +21,43 @@ const OFFLINE_PRUNE_MS = 2 * 3600e3;
 const STALE_WORKING_MS = 30 * 60e3;
 const clip = (s, n = 60) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 
+// ── Trading detection (TradingView MCP etc.) ────────────────────────────────
+const parts = n => String(n || "").split("__"); // mcp__server__tool
+const isMcp = n => String(n || "").startsWith("mcp__");
+const isTradingServer = n => isMcp(n) && /trad|tv|broker|alpaca|binance|ibkr|bybit/i.test(parts(n)[1] || "");
+const shortTool = n => parts(n).slice(2).join("__") || String(n);
+const isTradeTool = n => isMcp(n) && !/^(get|list|read|fetch|search|view|show|screenshot|chart|quote|history|describe)/i.test(shortTool(n))
+  && /order|trade|buy|sell|position|close|entry|exit|execute|bracket|stop|limit|market/i.test(shortTool(n));
+const pickField = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== "") return o[k]; };
+function tradeFrom(ev) {
+  const i = ev.tool_input || {}, name = shortTool(ev.tool_name);
+  let side = pickField(i, ["side", "action", "direction", "order_side", "type"]);
+  if (!side) side = (/buy|long/i.test(name) && "buy") || (/sell|short/i.test(name) && "sell") || undefined;
+  const num = v => (v == null || isNaN(Number(v)) ? v : Number(v));
+  return {
+    side: side ? String(side) : undefined,
+    symbol: pickField(i, ["symbol", "ticker", "pair", "instrument", "market"]),
+    qty: num(pickField(i, ["quantity", "qty", "size", "amount", "contracts", "lots"])),
+    price: num(pickField(i, ["price", "limit_price", "entry", "entry_price", "limitPrice"])),
+  };
+}
+function responseText(ev) {
+  const r = ev.tool_response;
+  try { return (typeof r === "string" ? r : JSON.stringify(r) || "").slice(0, 4000); } catch { return ""; }
+}
+const parsePnl = txt => {
+  const m = /(?:realized[\s_-]*)?(?:p&l|pnl|profit(?:[\s_-]*loss)?)["'\s:=]*\$?\s*(-?\d+(?:\.\d+)?)/i.exec(txt);
+  return m ? Number(m[1]) : undefined;
+};
+
 function describe(ev) {
   const t = ev.tool_name, i = ev.tool_input || {};
   const base = p => (p ? path.basename(String(p)) : "");
+  if (isMcp(t)) {
+    if (isTradeTool(t)) { const x = tradeFrom(ev); return clip(`Placing ${x.side || "trade"} ${x.symbol || ""} ${x.qty != null ? "×" + x.qty : ""}`); }
+    const sym = pickField(i, ["symbol", "ticker", "pair"]);
+    return clip(`${parts(t)[1]}: ${shortTool(t)}${sym ? " " + sym : ""}`);
+  }
   switch (t) {
     case "Bash": return clip(`Running: ${i.description || i.command}`);
     case "Edit": case "Write": case "NotebookEdit": return `Editing ${base(i.file_path || i.notebook_path)}`;
@@ -40,7 +74,7 @@ function update(agent, ev) {
   switch (ev.hook_event_name) {
     case "SessionStart": return { state: "break", task: "Session started", progress: 0 };
     case "UserPromptSubmit": return { state: "working", task: clip(ev.prompt) || "Working", progress: 5 };
-    case "PreToolUse": return { state: "working", task: describe(ev), progress: Math.min(95, (agent.progress || 5) + 3) };
+    case "PreToolUse": return { state: isTradingServer(ev.tool_name) ? "trading" : "working", task: describe(ev), progress: Math.min(95, (agent.progress || 5) + 3) };
     case "Notification": return { state: "error", task: clip(`Needs you: ${ev.message}`, 80) };
     case "Stop": return { state: "break", task: "Done — waiting for your next prompt", progress: 100 };
     case "SessionEnd": return { state: "offline", task: "Session ended" };
@@ -79,8 +113,21 @@ process.stdin.on("end", () => {
         feed.agents.push(a);
       }
       const u = update(a, ev);
-      if (!u) return;
-      Object.assign(a, u, { updated: now });
+      if (ev.hook_event_name === "PostToolUse" && isMcp(ev.tool_name)) {
+        // learn which MCP tools exist so detection can be tuned (see feed.tools_seen)
+        feed.tools_seen = Array.from(new Set([ev.tool_name, ...(feed.tools_seen || [])])).slice(0, 60);
+        if (isTradeTool(ev.tool_name)) {
+          const txt = responseText(ev);
+          const failed = (ev.tool_response && ev.tool_response.is_error === true) || /\b(error|rejected|insufficient|failed|invalid)\b/i.test(txt.slice(0, 600));
+          const pnl = failed ? undefined : parsePnl(txt);
+          const tr = { t: now, agent: a.name, tool: shortTool(ev.tool_name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
+          feed.trades = [tr, ...(feed.trades || [])].slice(0, 50);
+          if (pnl != null) a.pnl = Math.round(((a.pnl || 0) + pnl) * 100) / 100;
+          a.updated = now;
+        }
+      }
+      if (!u && ev.hook_event_name !== "PostToolUse") return;
+      if (u) Object.assign(a, u, { updated: now });
 
       feed.agents.forEach(x => { if (x.state === "working" && now - x.updated > STALE_WORKING_MS) Object.assign(x, { state: "offline", task: "No activity (stale)" }); });
       feed.agents = feed.agents
