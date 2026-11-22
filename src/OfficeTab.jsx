@@ -337,7 +337,7 @@ export default function OfficeTab() {
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: selected === a.id ? "#1e293b" : "transparent" }}>
                 <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{MAX_STRIKES}</span>}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{a.limit || MAX_STRIKES}</span>}</div>
                   <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.task}</div>
                 </div>
                 {a.pnl != null && <span style={{ fontSize: 10, fontWeight: 800, color: a.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(a.pnl)}</span>}
@@ -352,7 +352,7 @@ export default function OfficeTab() {
               <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>{sel.role}</div>
               <div style={{ fontSize: 11, color: STATES[sel.state].color, fontWeight: 700 }}>{STATES[sel.state].icon} {STATES[sel.state].label}</div>
               <div style={{ fontSize: 12, color: "#e2e8f0", margin: "4px 0 8px" }}>{sel.task}</div>
-              <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{sel.rank} · {Math.round(sel.points)} pts · strikes {sel.strikes}/{MAX_STRIKES} · mistakes {sel.mistakes || 0} · fixes {sel.fixes || 0}{sel.pnl != null ? ` · P&L ${money(sel.pnl)}` : ""}</div>
+              <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{sel.rank} · {Math.round(sel.points)} pts · strikes {sel.strikes}/{sel.limit || MAX_STRIKES} · mistakes {sel.mistakes || 0} · fixes {sel.fixes || 0}{sel.pnl != null ? ` · P&L ${money(sel.pnl)}` : ""}</div>
               {(sel.state === "working" || sel.state === "trading") && sel.progress != null && (
                 <div style={{ height: 6, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.round(sel.progress)}%`, height: "100%", background: "#22c55e", transition: "width .8s" }} />
@@ -618,7 +618,7 @@ function HrPanel({ items }) {
   return (
     <div style={{ background: "#0b1424", border: "1px solid #ef444455", borderRadius: 10, padding: 10, maxHeight: 220, overflowY: "auto" }}>
       <div style={{ fontSize: 10, fontWeight: 800, color: "#ef4444", letterSpacing: 1, marginBottom: 6 }}>🏛 HR · ACCOUNTABILITY</div>
-      <div style={{ fontSize: 10, color: "#475569", marginBottom: 6 }}>{MAX_STRIKES} unresolved mistakes in a row = terminated and replaced. Top performers rise to CEO.</div>
+      <div style={{ fontSize: 10, color: "#475569", marginBottom: 6 }}>Unfixed mistakes in a row = terminated and replaced ({MAX_STRIKES} for trading tools, 5 for ordinary coding errors). Top performers rise to CEO.</div>
       {items.length === 0 && <div style={{ fontSize: 11, color: "#475569" }}>No HR events yet.</div>}
       {items.slice(0, 20).map((h, i) => (
         <div key={i} style={{ fontSize: 11, padding: "3px 0", borderBottom: "1px solid #111827", color: "#94a3b8" }}>

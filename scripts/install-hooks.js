@@ -12,7 +12,7 @@ const hook = path.resolve(__dirname, "agent-office-hook.js").replace(/\\/g, "/")
 const command = `node "${hook}"`;
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"));
 const file = path.join(dir, "settings.json");
-const EVENTS = { SessionStart: false, UserPromptSubmit: false, PreToolUse: true, PostToolUse: "mcp__.*", Notification: false, Stop: false, SessionEnd: false };
+const EVENTS = { SessionStart: false, UserPromptSubmit: false, PreToolUse: true, PostToolUse: true, PostToolUseFailure: true, Notification: false, Stop: false, SessionEnd: false };
 
 fs.mkdirSync(dir, { recursive: true });
 let settings = {};
@@ -26,7 +26,12 @@ settings.hooks = settings.hooks || {};
 let added = 0;
 for (const [ev, needsMatcher] of Object.entries(EVENTS)) {
   const list = (settings.hooks[ev] = settings.hooks[ev] || []);
-  if (list.some(g => (g.hooks || []).some(h => h.command === command))) continue;
+  const want = needsMatcher === true ? "" : needsMatcher;
+  const mine = list.find(g => (g.hooks || []).some(h => h.command === command));
+  if (mine) { // already installed: widen an older, narrower matcher (e.g. mcp__.* -> all tools)
+    if (needsMatcher && (mine.matcher || "") !== want) { mine.matcher = want; added++; }
+    continue;
+  }
   list.push({ ...(needsMatcher ? { matcher: needsMatcher === true ? "" : needsMatcher } : {}), hooks: [{ type: "command", command }] });
   added++;
 }

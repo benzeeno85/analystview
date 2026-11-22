@@ -18,6 +18,7 @@ const path = require("path");
 const FILE = process.env.AGENT_OFFICE_FILE || path.join(__dirname, "..", "public", "agents_latest.json");
 const MAX_AGENTS = 10;
 const MAX_STRIKES = Number(process.env.AGENT_OFFICE_MAX_STRIKES) || 3; // consecutive unresolved mistakes before termination
+const MAX_CODE_STRIKES = Number(process.env.AGENT_OFFICE_MAX_CODE_STRIKES) || 5; // limit for ordinary coding/tool errors (builds, tests, edits)
 const ENFORCE = process.env.AGENT_OFFICE_ENFORCE === "1";             // block a terminated session's tool calls
 const FIRED_PRUNE_MS = 10 * 60e3;
 const CEO_MIN = 100;                                                  // points needed to be eligible for CEO
@@ -104,27 +105,42 @@ function withLock(fn) {
 // ── Accountability: strikes, termination, ranks, desks ──────────────────────
 const hr = (feed, now, type, agent, detail) => { feed.hr = [{ t: now, type, agent, detail }, ...(feed.hr || [])].slice(0, 40); };
 
-function judge(feed, a, ev, now) {
-  // A "mistake" is a failed call to a trading tool. A later success is a "fix".
-  const txt = responseText(ev);
-  const failed = (ev.tool_response && ev.tool_response.is_error === true) || /\b(error|rejected|insufficient|failed|invalid)\b/i.test(txt.slice(0, 600));
-  const trade = isTradeTool(ev.tool_name);
+// A "mistake" is a failed tool call: a trading tool (limit MAX_STRIKES) or any ordinary tool such
+// as Bash, Edit or a build/test run (limit MAX_CODE_STRIKES). It is "fixed" when the same tool
+// (or, for trading, any call on that trading server) succeeds again. Unfixed strikes accumulate.
+const failKey = n => (isTradingServer(n) ? "trading:" + parts(n)[1] : String(n));
+const isUserDenial = txt => /(permission|denied|rejected by (the )?user|user (doesn't|does not) want|interrupted by user|request was aborted)/i.test(txt);
+
+function judge(feed, a, ev, now, isFailureEvent) {
+  const name = ev.tool_name, trading = isTradingServer(name), key = failKey(name);
+  const txt = isFailureEvent ? String(ev.error || responseText(ev)) : responseText(ev);
+  if (isFailureEvent && (ev.is_interrupt === true || isUserDenial(txt.slice(0, 300)))) return; // not the agent's mistake
+  const failed = isFailureEvent
+    || (ev.tool_response && ev.tool_response.is_error === true)
+    || (trading && /\b(error|rejected|insufficient|failed|invalid)\b/i.test(txt.slice(0, 600)));
+  const trade = isTradeTool(name);
   const pnl = trade && !failed ? parsePnl(txt) : undefined;
   if (trade) {
-    const tr = { t: now, agent: a.name, tool: shortTool(ev.tool_name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
+    const tr = { t: now, agent: a.name, tool: shortTool(name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
     feed.trades = [tr, ...(feed.trades || [])].slice(0, 50);
     if (pnl != null) a.pnl = Math.round(((a.pnl || 0) + pnl) * 100) / 100;
   }
   if (failed) {
-    a.strikes = (a.strikes || 0) + 1; a.mistakes = (a.mistakes || 0) + 1; a.points = (a.points || 0) - 3;
-    if (a.strikes >= MAX_STRIKES) {
+    const limit = trading ? MAX_STRIKES : MAX_CODE_STRIKES;
+    a.strikes = (a.strikes || 0) + 1; a.mistakes = (a.mistakes || 0) + 1; a.points = (a.points || 0) - (trading ? 3 : 1);
+    a.failKey = key; a.limit = limit;
+    if (a.strikes >= limit) {
       Object.assign(a, { state: "fired", task: `Terminated: ${a.strikes} unresolved mistakes`, firedAt: now });
-      hr(feed, now, "terminated", a.name, `${a.strikes} unresolved mistakes in a row (last: ${shortTool(ev.tool_name)})`);
+      hr(feed, now, "terminated", a.name, `${a.strikes} unresolved mistakes in a row (last: ${shortTool(name)})`);
     } else {
-      Object.assign(a, { state: "error", task: clip(`Mistake in ${shortTool(ev.tool_name)} — strike ${a.strikes}/${MAX_STRIKES}`, 70) });
+      Object.assign(a, { state: "error", task: clip(`Mistake in ${shortTool(name)} — strike ${a.strikes}/${limit}`, 70) });
     }
   } else {
-    if (a.strikes > 0) { a.fixes = (a.fixes || 0) + 1; a.points = (a.points || 0) + 2; a.strikes = 0; hr(feed, now, "fixed", a.name, "Fixed their mistake"); Object.assign(a, { state: "trading", task: "Fixed the mistake — back to trading" }); }
+    if (a.strikes > 0 && a.failKey === key) {
+      a.fixes = (a.fixes || 0) + 1; a.points = (a.points || 0) + 2; a.strikes = 0;
+      hr(feed, now, "fixed", a.name, `Fixed their mistake (${shortTool(name)} works again)`);
+      Object.assign(a, { state: trading ? "trading" : "working", task: "Fixed the mistake — back to work" });
+    }
     if (trade) a.points = (a.points || 0) + 1 + (pnl != null ? pnl / 100 : 0);
   }
   a.points = Math.round((a.points || 0) * 100) / 100;
@@ -176,11 +192,13 @@ process.stdin.on("end", () => {
         return;
       }
       const u = update(a, ev);
-      if (ev.hook_event_name === "PostToolUse" && isMcp(ev.tool_name)) {
-        feed.tools_seen = Array.from(new Set([ev.tool_name, ...(feed.tools_seen || [])])).slice(0, 60); // helps tune detection
-        if (isTradingServer(ev.tool_name)) { judge(feed, a, ev, now); a.updated = now; }
+      const isFail = ev.hook_event_name === "PostToolUseFailure";
+      if (ev.hook_event_name === "PostToolUse" || isFail) {
+        if (isMcp(ev.tool_name)) feed.tools_seen = Array.from(new Set([ev.tool_name, ...(feed.tools_seen || [])])).slice(0, 60); // helps tune detection
+        judge(feed, a, ev, now, isFail);
+        a.updated = now;
       }
-      if (!u && ev.hook_event_name !== "PostToolUse") return;
+      if (!u && ev.hook_event_name !== "PostToolUse" && !isFail) return;
       if (u) Object.assign(a, u, { updated: now });
 
       feed.agents.forEach(x => { if ((x.state === "working" || x.state === "trading") && now - x.updated > STALE_WORKING_MS) Object.assign(x, { state: "offline", task: "No activity (stale)" }); });
