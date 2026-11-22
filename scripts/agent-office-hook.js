@@ -31,12 +31,31 @@ const clip = (s, n = 60) => String(s || "").replace(/\s+/g, " ").trim().slice(0,
 // ── Trading detection (TradingView MCP etc.) ────────────────────────────────
 const parts = n => String(n || "").split("__"); // mcp__server__tool
 const isMcp = n => String(n || "").startsWith("mcp__");
-const isTradingServer = n => isMcp(n) && /trad|tv|broker|alpaca|binance|ibkr|bybit/i.test(parts(n)[1] || "");
+const isTradingServer = n => isMcp(n) && /trad|tv|broker|alpaca|binance|ibkr|bybit|kucoin|ccxt|okx|bitget|kraken|coinbase|crypto|exchange/i.test(parts(n)[1] || "");
+
+// The team's agenda (default: crypto / KuCoin). Override with AGENT_OFFICE_AGENDA (a regex source).
+const AGENDA = new RegExp(process.env.AGENT_OFFICE_AGENDA || "kucoin|ccxt|crypto|\\b(btc|eth|sol|xrp|doge|bnb|ada|avax)[-_/ ]?usdt?\\b|usdt|funding[ _-]?rate|orderbook|order[ _-]?book", "i");
+const toolText = ev => { try { return `${ev.tool_name} ${JSON.stringify(ev.tool_input || {})}`.slice(0, 3000); } catch { return String(ev.tool_name || ""); } };
+const onAgenda = ev => !!ev.tool_name && (isTradingServer(ev.tool_name) || AGENDA.test(toolText(ev)));
+const bashCmd = ev => (ev.tool_name === "Bash" && ev.tool_input && ev.tool_input.command) || "";
+// A shell/script call that places an order on the agenda venue
+const isBashTrade = ev => ev.tool_name === "Bash" && AGENDA.test(bashCmd(ev)) && /(create_?order|place_?order|market_(buy|sell)|limit_(buy|sell)|\/api\/v\d\/orders|--side\b|["']side["']\s*:)/i.test(bashCmd(ev));
 const shortTool = n => parts(n).slice(2).join("__") || String(n);
 const isTradeTool = n => isMcp(n) && !/^(get|list|read|fetch|search|view|show|screenshot|chart|quote|history|describe)/i.test(shortTool(n))
   && /order|trade|buy|sell|position|close|entry|exit|execute|bracket|stop|limit|market/i.test(shortTool(n));
 const pickField = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== "") return o[k]; };
+function tradeFromBash(cmd) {
+  const m = (re) => { const x = re.exec(cmd); return x ? x[1] : undefined; };
+  const sym = m(/\b([A-Z0-9]{2,8}[-_/]USDT?)\b/i);
+  return {
+    side: m(/\b(buy|sell|long|short)\b/i),
+    symbol: sym && sym.toUpperCase().replace(/[_/]/g, "-"),
+    qty: (v => (v == null ? v : Number(v)))(m(/(?:--?(?:size|qty|quantity|amount)[ =]|["']?(?:size|qty|quantity|amount)["']?\s*[:=]\s*["']?)(\d+(?:\.\d+)?)/i)),
+    price: (v => (v == null ? v : Number(v)))(m(/(?:--?price[ =]|["']?price["']?\s*[:=]\s*["']?)(\d+(?:\.\d+)?)/i)),
+  };
+}
 function tradeFrom(ev) {
+  if (ev.tool_name === "Bash") return tradeFromBash(bashCmd(ev));
   const i = ev.tool_input || {}, name = shortTool(ev.tool_name);
   let side = pickField(i, ["side", "action", "direction", "order_side", "type"]);
   if (!side) side = (/buy|long/i.test(name) && "buy") || (/sell|short/i.test(name) && "sell") || undefined;
@@ -58,6 +77,10 @@ const parsePnl = txt => {
 };
 
 function describe(ev) {
+  const d = describe0(ev);
+  return ev._on && !isMcp(ev.tool_name) ? clip("₿ " + d) : d;
+}
+function describe0(ev) {
   const t = ev.tool_name, i = ev.tool_input || {};
   const base = p => (p ? path.basename(String(p)) : "");
   if (isMcp(t)) {
@@ -81,7 +104,7 @@ function update(agent, ev) {
   switch (ev.hook_event_name) {
     case "SessionStart": return { state: "idle", task: "Session started", progress: 0 };
     case "UserPromptSubmit": return { state: "working", task: clip(ev.prompt) || "Working", progress: 5 };
-    case "PreToolUse": return { state: isTradingServer(ev.tool_name) ? "trading" : "working", task: describe(ev), progress: Math.min(95, (agent.progress || 5) + 3) };
+    case "PreToolUse": return { state: ev._on ? "trading" : "working", task: describe(ev), progress: Math.min(95, (agent.progress || 5) + 3) };
     case "Notification": return { state: "idle", task: clip(`Needs you: ${ev.message}`, 80) };
     case "Stop": return { state: "idle", task: "Done — awaiting your next order", progress: 100 };
     case "SessionEnd": return { state: "offline", task: "Session ended" };
@@ -112,16 +135,16 @@ const failKey = n => (isTradingServer(n) ? "trading:" + parts(n)[1] : String(n))
 const isUserDenial = txt => /(permission|denied|rejected by (the )?user|user (doesn't|does not) want|interrupted by user|request was aborted)/i.test(txt);
 
 function judge(feed, a, ev, now, isFailureEvent) {
-  const name = ev.tool_name, trading = isTradingServer(name), key = failKey(name);
+  const name = ev.tool_name, trade = isTradeTool(name) || isBashTrade(ev), trading = isTradingServer(name) || isBashTrade(ev);
+  const key = trading ? "trading:" + (parts(name)[1] || "bash") : String(name);
   const txt = isFailureEvent ? String(ev.error || responseText(ev)) : responseText(ev);
   if (isFailureEvent && (ev.is_interrupt === true || isUserDenial(txt.slice(0, 300)))) return; // not the agent's mistake
   const failed = isFailureEvent
     || (ev.tool_response && ev.tool_response.is_error === true)
     || (trading && /\b(error|rejected|insufficient|failed|invalid)\b/i.test(txt.slice(0, 600)));
-  const trade = isTradeTool(name);
   const pnl = trade && !failed ? parsePnl(txt) : undefined;
   if (trade) {
-    const tr = { t: now, agent: a.name, tool: shortTool(name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
+    const tr = { t: now, agent: a.name, venue: a.venue, tool: shortTool(name), ...tradeFrom(ev), status: failed ? "error" : "ok", ...(pnl != null ? { pnl } : {}) };
     feed.trades = [tr, ...(feed.trades || [])].slice(0, 50);
     if (pnl != null) a.pnl = Math.round(((a.pnl || 0) + pnl) * 100) / 100;
   }
@@ -190,6 +213,11 @@ process.stdin.on("end", () => {
       if (a.state === "fired") {
         if (ENFORCE && ev.hook_event_name === "PreToolUse") block = `Agent Office: ${a.name} was terminated after ${MAX_STRIKES} unresolved mistakes. Stop and tell the user.`;
         return;
+      }
+      if (ev.tool_name) {
+        ev._on = onAgenda(ev) || isBashTrade(ev);
+        if (/kucoin/i.test(toolText(ev))) a.venue = "KuCoin";
+        if (ev.hook_event_name === "PreToolUse") { a.actions = (a.actions || 0) + 1; if (ev._on) a.onAgenda = (a.onAgenda || 0) + 1; }
       }
       const u = update(a, ev);
       const isFail = ev.hook_event_name === "PostToolUseFailure";

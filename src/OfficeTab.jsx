@@ -21,6 +21,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
  */
 
 const FEED = process.env.REACT_APP_AGENTS_FEED || "/agents_latest.json";
+const AGENDA_LABEL = process.env.REACT_APP_AGENDA || "Crypto · KuCoin demo";
+const focusOf = a => (a.actions > 0 ? Math.round((100 * (a.onAgenda || 0)) / a.actions) : null);
+const focusColor = f => (f >= 70 ? "#22c55e" : f >= 40 ? "#f59e0b" : "#ef4444");
 
 const STATES = {
   trading: { label: "Trading",         short: "TRADING",   icon: "📈", color: "#eab308" },
@@ -286,6 +289,8 @@ export default function OfficeTab() {
   const total = live ? feed.agents.length : demo.length;
   const trades = live && Array.isArray(feed.trades) ? feed.trades : [];
   const totalPnl = agents.reduce((n, x) => n + (Number(x.pnl) || 0), 0);
+  const sumActions = agents.reduce((n, x) => n + (x.actions || 0), 0);
+  const teamFocus = sumActions > 0 ? Math.round((100 * agents.reduce((n, x) => n + (x.onAgenda || 0), 0)) / sumActions) : null;
   const hasPnl = trades.length > 0 || agents.some(x => x.pnl != null);
   const money = v => `${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
@@ -299,6 +304,8 @@ export default function OfficeTab() {
         <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 10, color: live ? "#22c55e" : "#f59e0b", background: live ? "#22c55e18" : "#f59e0b18", border: `1px solid ${live ? "#22c55e55" : "#f59e0b55"}` }}>
           {live ? "● LIVE FEED" : "◌ DEMO MODE"}
         </span>
+        <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 10, color: "#eab308", background: "#eab30818", border: "1px solid #eab30855" }}>🎯 Agenda: {AGENDA_LABEL}</span>
+        {teamFocus != null && <span title="Share of all agent actions that were on the agenda" style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 10, color: focusColor(teamFocus), background: "#0b1424", border: `1px solid ${focusColor(teamFocus)}66` }}>Team focus {teamFocus}%</span>}
         {total > 8 && <span style={{ fontSize: 10, color: "#64748b" }}>showing 8 of {total}</span>}
         {hasPnl && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 10px", borderRadius: 10, color: totalPnl >= 0 ? "#22c55e" : "#ef4444", background: "#0b1424", border: `1px solid ${totalPnl >= 0 ? "#22c55e66" : "#ef444466"}` }}>P&L {money(totalPnl)} · {trades.length} trades</span>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
@@ -337,7 +344,7 @@ export default function OfficeTab() {
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: selected === a.id ? "#1e293b" : "transparent" }}>
                 <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{a.limit || MAX_STRIKES}</span>}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{a.name} <span style={{ fontSize: 9, fontWeight: 800, color: a.rank === "CEO" ? "#eab308" : "#60a5fa", background: "#111c33", borderRadius: 6, padding: "0 5px" }}>{a.rank === "CEO" ? "👑 CEO" : a.rank}</span>{focusOf(a) != null && <span title="Share of this agent's actions on the agenda" style={{ fontSize: 9, fontWeight: 800, marginLeft: 4, color: focusColor(focusOf(a)) }}>🎯{focusOf(a)}%</span>}{a.strikes > 0 && <span style={{ color: "#ef4444", fontSize: 10, fontWeight: 800 }}> ✗{a.strikes}/{a.limit || MAX_STRIKES}</span>}</div>
                   <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.task}</div>
                 </div>
                 {a.pnl != null && <span style={{ fontSize: 10, fontWeight: 800, color: a.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{money(a.pnl)}</span>}
@@ -352,7 +359,7 @@ export default function OfficeTab() {
               <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>{sel.role}</div>
               <div style={{ fontSize: 11, color: STATES[sel.state].color, fontWeight: 700 }}>{STATES[sel.state].icon} {STATES[sel.state].label}</div>
               <div style={{ fontSize: 12, color: "#e2e8f0", margin: "4px 0 8px" }}>{sel.task}</div>
-              <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{sel.rank} · {Math.round(sel.points)} pts · strikes {sel.strikes}/{sel.limit || MAX_STRIKES} · mistakes {sel.mistakes || 0} · fixes {sel.fixes || 0}{sel.pnl != null ? ` · P&L ${money(sel.pnl)}` : ""}</div>
+              <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{sel.rank} · {Math.round(sel.points)} pts · strikes {sel.strikes}/{sel.limit || MAX_STRIKES} · mistakes {sel.mistakes || 0} · fixes {sel.fixes || 0}{focusOf(sel) != null ? ` · on-agenda ${sel.onAgenda || 0}/${sel.actions}` : ""}{sel.pnl != null ? ` · P&L ${money(sel.pnl)}` : ""}</div>
               {(sel.state === "working" || sel.state === "trading") && sel.progress != null && (
                 <div style={{ height: 6, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.round(sel.progress)}%`, height: "100%", background: "#22c55e", transition: "width .8s" }} />
@@ -366,7 +373,7 @@ export default function OfficeTab() {
 
           {live && (
             <div style={{ background: "#0b1424", border: "1px solid #eab30855", borderRadius: 10, padding: 10, maxHeight: 260, overflowY: "auto" }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: "#eab308", letterSpacing: 1, marginBottom: 6 }}>📈 TRADE BLOTTER</div>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#eab308", letterSpacing: 1, marginBottom: 6 }}>📈 TRADE BLOTTER{trades.some(t => t.venue) ? ` · ${trades.find(t => t.venue).venue} DEMO` : ""}</div>
               {trades.length === 0 && <div style={{ fontSize: 11, color: "#475569" }}>No trades detected yet. Trades appear when an agent calls a TradingView order/trade tool.</div>}
               {trades.slice(0, 25).map((t, i) => {
                 const buy = /buy|long/i.test(t.side || ""), sell = /sell|short/i.test(t.side || "");
@@ -374,6 +381,7 @@ export default function OfficeTab() {
                   <div key={i} style={{ fontSize: 11, padding: "4px 0", borderBottom: "1px solid #111827", display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
                     <span style={{ color: "#475569", fontFamily: "monospace" }}>{hhmmss(t.t)}</span>
                     <b style={{ color: "#cbd5e1" }}>{t.agent}</b>
+                    {t.venue && <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab30855", borderRadius: 4, padding: "0 4px" }}>{t.venue}</span>}
                     <span style={{ fontWeight: 800, color: buy ? "#22c55e" : sell ? "#ef4444" : "#94a3b8" }}>{(t.side || t.action || "TRADE").toUpperCase()}</span>
                     <span style={{ color: "#e2e8f0" }}>{t.symbol || "?"}{t.qty != null ? ` ×${t.qty}` : ""}{t.price != null ? ` @ ${t.price}` : ""}</span>
                     {t.status === "error" && <span style={{ color: "#ef4444" }}>failed</span>}

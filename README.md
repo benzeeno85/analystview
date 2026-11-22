@@ -82,3 +82,6 @@ within ~5s. With no feed the tab runs a demo simulation.
 - **3 unresolved trading strikes, or 5 coding strikes, in a row = terminated** (`AGENT_OFFICE_MAX_STRIKES` / `AGENT_OFFICE_MAX_CODE_STRIKES` to change). The agent is walked out to the lobby and the next new session joins as an Intern in the vacated desk.
 - Optional hard enforcement: set `AGENT_OFFICE_ENFORCE=1` to also **block a terminated session's tool calls** (off by default).
 - Ranks come from points (successful trades, profit, fixes up; mistakes down): Intern → Analyst → Trader → Senior Trader → Portfolio Manager → CEO (top performer with 100+ points).
+
+### Agenda focus (crypto / KuCoin demo)
+Work that touches KuCoin or crypto (MCP tools on a kucoin/exchange/trading server, or shell/script calls mentioning KuCoin, ccxt, BTC-USDT, funding rate, etc.) shows the agent as **Trading**; KuCoin order scripts go on the trade blotter. Each agent gets a focus score (share of its actions on the agenda). Change the agenda with `AGENT_OFFICE_AGENDA` (a regex) and the label with `REACT_APP_AGENDA`.
