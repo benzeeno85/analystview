@@ -1,0 +1,11 @@
+{
+  "agents": [
+    { "id": "atlas", "name": "Atlas", "role": "Market Data Collector", "state": "working", "task": "Fetching S&P 500 quotes", "progress": 40 },
+    { "id": "nova",  "name": "Nova",  "role": "Options Flow Analyst",  "state": "meeting", "task": "Morning sync" },
+    { "id": "sage",  "name": "Sage",  "role": "COT Positioning",       "state": "error",   "task": "CFTC feed timed out" },
+    { "id": "echo",  "name": "Echo",  "role": "News Sentiment",        "state": "break",   "task": "Coffee break" }
+  ],
+  "events": [
+    { "t": "2026-11-22T10:00:00Z", "agent": "Atlas", "text": "Finished crypto refresh" }
+  ]
+}

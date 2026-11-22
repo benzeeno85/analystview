@@ -68,3 +68,20 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+## Agent Office (live Claude Code sessions)
+
+The **🏢 Office** tab shows your Claude Code sessions as agents in a virtual office.
+Merge `scripts/claude-hooks.example.json` into `~/.claude/settings.json` (replace
+`/ABSOLUTE/PATH/TO/analystview`), restart Claude Code sessions, then run `npm start`.
+Each session reports to `public/agents_latest.json` (git-ignored) and the tab updates
+within ~5s. With no feed the tab runs a demo simulation.
+
+### Accountability rules (Agent Office)
+- A failed tool call is a **strike**: trading tools (rejected order, error response) and ordinary coding errors (failed Bash/test/build, bad edits). A later success of the same tool is a **fix** and clears strikes. Permission denials and Esc interrupts don't count.
+- **3 unresolved trading strikes, or 5 coding strikes, in a row = terminated** (`AGENT_OFFICE_MAX_STRIKES` / `AGENT_OFFICE_MAX_CODE_STRIKES` to change). The agent is walked out to the lobby and the next new session joins as an Intern in the vacated desk.
+- Optional hard enforcement: set `AGENT_OFFICE_ENFORCE=1` to also **block a terminated session's tool calls** (off by default).
+- Ranks come from points (successful trades, profit, fixes up; mistakes down): Intern → Analyst → Trader → Senior Trader → Portfolio Manager → CEO (top performer with 100+ points).
+
+### Agenda focus (crypto / KuCoin demo)
+Venues: KuCoin and CMC Markets. Work that touches KuCoin, CMC Markets or crypto (MCP tools on a kucoin/exchange/trading server, or shell/script calls mentioning KuCoin, ccxt, BTC-USDT, funding rate, etc.) shows the agent as **Trading**; KuCoin order scripts go on the trade blotter. Each agent gets a focus score (share of its actions on the agenda). Change the agenda with `AGENT_OFFICE_AGENDA` (a regex) and the label with `REACT_APP_AGENDA`.
