@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import MarketIntelTab from "./MarketIntelTab";
+import OfficeTab from "./OfficeTab";
 
 const API_KEYS = { finnhub: "", alphavantage: "", polygon: "", fmp: "" };
 
@@ -2684,7 +2685,7 @@ export default function App() {
   const futCategories=["All",...new Set(FUTURES.map(f=>f.category))];
   const filteredFutures=FUTURES.filter(f=>{ const q=search.toLowerCase(); return(!q||f.name.toLowerCase().includes(q)||f.symbol.toLowerCase().includes(q))&&(futFilter==="All"||f.category===futFilter); });
   const filteredIndices=INDICES.filter(i=>{ const q=search.toLowerCase(); return !q||i.symbol.toLowerCase().includes(q)||i.name.toLowerCase().includes(q); });
-  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"etfs",label:"🧺 ETFs"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"},{id:"intel",label:"🐋 Intel"}];
+  const TABS=[{id:"stocks",label:"📈 Stocks"},{id:"etfs",label:"🧺 ETFs"},{id:"options",label:"⚡ Options"},{id:"indices",label:"🌐 Indices"},{id:"futures",label:"🛢 Futures"},{id:"intel",label:"🐋 Intel"},{id:"office",label:"🏢 Office"}];
 
   return (
     <div style={{minHeight:"100vh",background:"#060e1a",color:"#e2e8f0",fontFamily:"'Inter',-apple-system,sans-serif",display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -2750,16 +2751,17 @@ export default function App() {
 
 
       {tab==="intel"&&<MarketIntelTab/>}
+      {tab==="office"&&<OfficeTab/>}
 
       {/* Search */}
-      {!(tab==="options"&&optMode==="chain")&&(
+      {!(tab==="options"&&optMode==="chain")&&tab!=="office"&&(
         <div style={{padding:"10px 16px",background:"#080f1c",borderBottom:"1px solid #111827",flexShrink:0}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab}…`} style={{width:"100%",boxSizing:"border-box",background:"#111827",border:"1px solid #1e293b",color:"#e2e8f0",borderRadius:7,padding:"8px 12px",fontSize:13,outline:"none"}}/>
         </div>
       )}
 
       {/* Main content */}
-      <div style={{flex:1,display:"grid",gridTemplateColumns:selected?"1fr 360px":"1fr",overflow:"hidden"}}>
+      {tab!=="office"&&<div style={{flex:1,display:"grid",gridTemplateColumns:selected?"1fr 360px":"1fr",overflow:"hidden"}}>
         <div style={{overflowY:"auto",padding:14}}>
 
           {tab==="options"&&optMode==="chain"&&<LiveChainView/>}
@@ -2793,7 +2795,7 @@ export default function App() {
             {selected.type==="future"&&<FuturesDetail fut={selected} data={futuresData[selected.symbol]} onClose={()=>setSelected(null)}/>}
           </div>
         )}
-      </div>
+      </div>}
 
       <div style={{borderTop:"1px solid #1e293b",padding:"7px 16px",display:"flex",justifyContent:"space-between",background:"#080f1c",flexShrink:0}}>
         <span style={{fontSize:10,color:"#374151"}}>AnalystView · Not financial advice · Live options via Yahoo Finance</span>
